@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: pharmacy
+      POSTGRES_USER: pharmacy
+      POSTGRES_PASSWORD: pharmacy
+    ports:
+      - "5432:5432"
+    volumes:
+      - pharmacy_pgdata:/var/lib/postgresql/data
+
+volumes:
+  pharmacy_pgdata:
