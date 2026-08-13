@@ -23,13 +23,13 @@ type User = {
 };
 
 type UserFormState = { id?: number; username: string; full_name: string; email: string; role: string; password: string };
-type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'dispense' | 'sales' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
+type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
 
-const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'dispense', 'sales', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
+const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
 const translations = {
-    en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
-    hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
-    bn: { workspace: 'আমার কর্মক্ষেত্র', dashboard: 'ড্যাশবোর্ড', medicines: 'ওষুধ', batches: 'ব্যাচ', dispense: 'FEFO বিতরণ', import: 'CSV আমদানি', suppliers: 'সরবরাহকারী', transactions: 'লেনদেন', reference: 'রেফারেন্স তথ্য', users: 'দল ও প্রবেশাধিকার', reports: 'রিপোর্ট', signOut: 'লগ আউট', control: 'আরোগ্যমিত্র নিয়ন্ত্রণ কেন্দ্র', language: 'ভাষা' },
+    en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', expiry: 'Expiry & waste', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
+    hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', expiry: 'समाप्ति व अपशिष्ट', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
+    bn: { workspace: 'আমার কর্মক্ষেত্র', dashboard: 'ড্যাশবোর্ড', medicines: 'ওষুধ', batches: 'ব্যাচ', expiry: 'মেয়াদ ও বর্জ্য', dispense: 'FEFO বিতরণ', import: 'CSV আমদানি', suppliers: 'সরবরাহকারী', transactions: 'লেনদেন', reference: 'রেফারেন্স তথ্য', users: 'দল ও প্রবেশাধিকার', reports: 'রিপোর্ট', signOut: 'লগ আউট', control: 'আরোগ্যমিত্র নিয়ন্ত্রণ কেন্দ্র', language: 'ভাষা' },
 } as const;
 
 type Medicine = {
@@ -137,9 +137,14 @@ type Batch = {
     disposal_reference?: string | null;
     disposed_on?: string | null;
 };
+type ExpiryBand = 'green' | 'yellow' | 'red' | 'black';
+type ExpiryBatch = Batch & { daysLeft: number; expiryBand: ExpiryBand; expiryLabel: string };
+type ExpirySupplier = { supplier: string; totalBatches: number; expiredBatches: number; nearExpiryBatches: number; totalQuantity: number; nextExpiry: string | null };
 type DepartmentInventory = { id: number; department: string; medicine_id: number; medicine_name: string; batch_number: string; quantity: number; updated_at: string };
 
 type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null };
+
+type SmtpStatus = { configured: boolean; host: string; port: number; use_tls: boolean; username_configured: boolean; from_email: string };
 
 type AlertItem = {
     id: number;
@@ -294,6 +299,26 @@ async function downloadFile(path: string, token: string | null) {
     URL.revokeObjectURL(url);
 }
 
+function getExpirySnapshot(expiryDate: string, disposalStatus?: string) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(`${expiryDate}T00:00:00`);
+    const daysLeft = Math.round((expiry.getTime() - today.getTime()) / 86400000);
+    if (disposalStatus === 'disposed') {
+        return { daysLeft, expiryBand: 'black' as const, expiryLabel: 'Disposed' };
+    }
+    if (daysLeft < 0) {
+        return { daysLeft, expiryBand: 'black' as const, expiryLabel: 'Expired' };
+    }
+    if (daysLeft <= 90) {
+        return { daysLeft, expiryBand: 'red' as const, expiryLabel: 'Under 3 months' };
+    }
+    if (daysLeft <= 180) {
+        return { daysLeft, expiryBand: 'yellow' as const, expiryLabel: '3-6 months' };
+    }
+    return { daysLeft, expiryBand: 'green' as const, expiryLabel: 'Healthy' };
+}
+
 export default function App() {
     const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
     const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -325,6 +350,10 @@ export default function App() {
     const [insights, setInsights] = useState<Insight | null>(null);
     const [users, setUsers] = useState<User[]>([]);
     const [procurementRequests, setProcurementRequests] = useState<ProcurementRequest[]>([]);
+    const [smtpStatus, setSmtpStatus] = useState<SmtpStatus | null>(null);
+    const [smtpRecipient, setSmtpRecipient] = useState('');
+    const [smtpSubject, setSmtpSubject] = useState('Pharmacy communication test');
+    const [smtpBody, setSmtpBody] = useState('This is a test email from the pharmacy communication workspace.');
     const [userForm, setUserForm] = useState<UserFormState>({ username: '', full_name: '', email: '', role: 'pharmacist', password: '' });
     const [importFile, setImportFile] = useState<File | null>(null);
     const [dispenseLookup, setDispenseLookup] = useState('');

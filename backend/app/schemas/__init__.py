@@ -264,6 +264,21 @@ class CollectionConfirmation(BaseModel):
     note: str | None = None
 
 
+class SMTPStatus(BaseModel):
+    configured: bool
+    host: str
+    port: int
+    use_tls: bool
+    username_configured: bool
+    from_email: str
+
+
+class SMTPTestRequest(BaseModel):
+    recipient: str | None = None
+    subject: str | None = None
+    body: str | None = None
+
+
 class DispenseRequest(BaseModel):
     lookup: str
     quantity: int

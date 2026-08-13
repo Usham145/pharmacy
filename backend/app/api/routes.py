@@ -50,6 +50,8 @@ from app.schemas import (
     ImportResult,
     DisposalRequest,
     CollectionConfirmation,
+    SMTPStatus,
+    SMTPTestRequest,
     PharmacyCreate,
     PharmacyRead,
     PharmacyRegistration,
@@ -714,6 +716,71 @@ def email_supplier_return(batch_id: int, db: Session = Depends(get_db), current_
         raise HTTPException(status_code=503, detail="SMTP is not configured; add SMTP settings before sending email")
     db.add(AuditLog(actor_username=current_user.username, action="supplier_return_email_sent", entity_name="batch", entity_id=batch.id, description=f"Return request sent to {supplier.email}")); db.commit()
     return {"detail": f"Return request emailed to {supplier.email}"}
+
+
+@router.get("/communications/smtp-status", response_model=SMTPStatus)
+def get_smtp_status(db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> SMTPStatus:
+    return SMTPStatus.model_validate(smtp_configuration_status())
+
+
+@router.post("/communications/test-email")
+def send_test_email(
+    payload: SMTPTestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "pharmacist")),
+) -> dict[str, str]:
+    recipient = (payload.recipient or current_user.email or settings.admin_alert_email or settings.smtp_from_email).strip()
+    if not recipient:
+        raise HTTPException(status_code=400, detail="Add a recipient email or set SMTP_FROM_EMAIL before testing SMTP")
+    pharmacy = db.query(Pharmacy).filter(Pharmacy.id == current_user.pharmacy_id).first()
+    subject = (payload.subject or f"{settings.app_name} SMTP test").strip()
+    body = (
+        payload.body.strip()
+        if payload.body and payload.body.strip()
+        else (
+            f"SMTP test message from {settings.app_name}\n\n"
+            f"Pharmacy: {pharmacy.name if pharmacy else 'Unknown'}\n"
+            f"User: {current_user.full_name} ({current_user.username})\n"
+            f"Recipient: {recipient}\n\n"
+            "If you received this message, the communication channel is working."
+        )
+    )
+    if not send_procurement_email(recipient=recipient, subject=subject, body=body):
+        raise HTTPException(status_code=503, detail="SMTP is not configured. Add SMTP_HOST and SMTP_FROM_EMAIL before sending mail.")
+    db.add(AuditLog(actor_username=current_user.username, action="smtp_test_email_sent", entity_name="communication", entity_id=current_user.id, description=f"SMTP test email sent to {recipient}"))
+    db.commit()
+    return {"detail": f"Test email sent to {recipient}"}
+
+
+@router.post("/batches/{batch_id}/email-expiry-reminder")
+def email_expiry_reminder(batch_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> dict[str, str]:
+    batch = db.query(BatchStock).join(Medicine).filter(BatchStock.id == batch_id, Medicine.pharmacy_id == current_user.pharmacy_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    days_left = (batch.expiry_date - date.today()).days
+    if batch.expiry_date > date.today() + timedelta(days=settings.near_expiry_days):
+        raise HTTPException(status_code=400, detail="Only near-expiry or expired batches can use the reminder workflow")
+    supplier = db.query(Supplier).filter(Supplier.company_name == batch.supplier).first()
+    if not supplier or not supplier.email:
+        raise HTTPException(status_code=400, detail="Original supplier email is not available")
+    pharmacy = db.query(Pharmacy).filter(Pharmacy.id == current_user.pharmacy_id).first()
+    expiry_state = "expired" if batch.expiry_date < date.today() else f"{days_left} days from expiry"
+    body = (
+        f"Dear {supplier.contact_person},\n\n"
+        f"Please review the medicine batch below for reverse logistics, replacement, or return credit.\n\n"
+        f"Pharmacy: {pharmacy.name if pharmacy else ''}\n"
+        f"Medicine batch: {batch.batch_number}\n"
+        f"Medicine: {batch.medicine.name}\n"
+        f"Quantity: {batch.quantity}\n"
+        f"Expiry date: {batch.expiry_date} ({expiry_state})\n\n"
+        "If a return or collection is possible, please confirm the pickup instructions and any authorization reference required.\n"
+    )
+    subject = f"Expiry reminder: {batch.batch_number}"
+    if not send_procurement_email(recipient=supplier.email, subject=subject, body=body):
+        raise HTTPException(status_code=503, detail="SMTP is not configured; add SMTP settings before sending email")
+    db.add(AuditLog(actor_username=current_user.username, action="expiry_reminder_email_sent", entity_name="batch", entity_id=batch.id, description=f"Expiry reminder sent to {supplier.email}"))
+    db.commit()
+    return {"detail": f"Expiry reminder emailed to {supplier.email}"}
 
 
 @router.post("/dispense", response_model=BatchRead)
