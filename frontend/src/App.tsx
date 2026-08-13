@@ -23,9 +23,9 @@ type User = {
 };
 
 type UserFormState = { id?: number; username: string; full_name: string; email: string; role: string; password: string };
-type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
+type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
 
-const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
+const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
 const translations = {
     en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', expiry: 'Expiry & waste', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
     hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', expiry: 'समाप्ति व अपशिष्ट', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
@@ -141,6 +141,7 @@ type ExpiryBand = 'green' | 'yellow' | 'red' | 'black';
 type ExpiryBatch = Batch & { daysLeft: number; expiryBand: ExpiryBand; expiryLabel: string };
 type ExpirySupplier = { supplier: string; totalBatches: number; expiredBatches: number; nearExpiryBatches: number; totalQuantity: number; nextExpiry: string | null };
 type DepartmentInventory = { id: number; department: string; medicine_id: number; medicine_name: string; batch_number: string; quantity: number; updated_at: string };
+type FinancialSummary = { sales_total: number; sales_count: number; purchases_total: number; purchase_count: number };
 
 type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null };
 
@@ -368,6 +369,7 @@ export default function App() {
     const [buyerName, setBuyerName] = useState('');
     const [buyerPhone, setBuyerPhone] = useState('');
     const [latestBill, setLatestBill] = useState<SaleInvoice | null>(null);
+    const [financials, setFinancials] = useState<FinancialSummary | null>(null);
     const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
     const [pharmacyForm, setPharmacyForm] = useState({ name: '', hospital_name: '', licence_number: '', address: '', admin_username: '', admin_full_name: '', admin_email: '', admin_password: '' });
     const t = translations[language];
@@ -442,7 +444,7 @@ export default function App() {
         try {
             const role = roleOverride ?? currentUser?.role;
             const query = medicineId ? `?medicine_id=${medicineId}` : '';
-            const [summary, medicines, batches, alerts, suppliersData, departmentsData, locationsData, purchaseOrdersData, transactionsData, departmentInventoryData, categoriesData, insightsData] = await Promise.all([
+            const [summary, medicines, batches, alerts, suppliersData, departmentsData, locationsData, purchaseOrdersData, transactionsData, departmentInventoryData, categoriesData, insightsData, financialSummary] = await Promise.all([
                 apiRequest<Summary>('/dashboard/summary', token),
                 apiRequest<Medicine[]>('/medicines', token),
                 apiRequest<Batch[]>(`/batches${query}`, token),
@@ -455,6 +457,7 @@ export default function App() {
                 apiRequest<DepartmentInventory[]>('/department-inventory', token),
                 apiRequest<Category[]>('/categories', token),
                 apiRequest<Insight>('/dashboard/insights', token),
+                apiRequest<FinancialSummary>('/reports/financial-summary', token),
             ]);
             const forecast = medicines[0] ? await apiRequest<Forecast>(`/forecasts/${medicineId ?? medicines[0].id}`, token) : null;
             setDashboardData({ summary, medicines, batches, alerts, forecast, suppliers: suppliersData, departments: departmentsData, locations: locationsData, purchaseOrders: purchaseOrdersData, transactions: transactionsData, categories: categoriesData, insights: insightsData });
@@ -464,6 +467,7 @@ export default function App() {
             setPurchaseOrders(purchaseOrdersData);
             setTransactions(transactionsData);
             setDepartmentInventory(departmentInventoryData);
+            setFinancials(financialSummary);
             setCategories(categoriesData);
             setInsights(insightsData);
             if (currentUser?.role === 'admin') {
@@ -577,6 +581,14 @@ export default function App() {
             const result = await apiRequest<{ detail: string }>(`/batches/${batch.id}/email-supplier-return`, token, { method: 'POST' });
             setStatus(result.detail);
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Supplier return email failed'); }
+    }
+
+    async function emailSupplierForExpiry(batch: Batch) {
+        if (!token) return;
+        try {
+            const result = await apiRequest<{ detail: string }>(`/batches/${batch.id}/email-expiry-reminder`, token, { method: 'POST' });
+            setStatus(result.detail);
+        } catch (error) { setStatus(error instanceof Error ? error.message : 'Supplier reminder email failed'); }
     }
 
     async function scanProcurement() {
@@ -817,6 +829,8 @@ export default function App() {
 
     const canEdit = currentUser?.role === 'admin' || currentUser?.role === 'pharmacist';
     const visiblePages: { page: Page; label: string; icon: string; roles: string[] }[] = [
+        { page: 'finance', label: 'Sales & purchases', icon: '₹', roles: ['admin', 'pharmacist'] },
+        { page: 'expiry', label: t.expiry, icon: '!', roles: ['admin', 'pharmacist'] },
         { page: 'welcome', label: t.workspace, icon: '⌂', roles: ['admin', 'pharmacist'] },
         { page: 'dashboard', label: t.dashboard, icon: '◫', roles: ['admin', 'pharmacist'] },
         { page: 'medicines', label: t.medicines, icon: '✚', roles: ['admin', 'pharmacist'] },
@@ -1243,6 +1257,15 @@ export default function App() {
                     </section>
                 )}
 
+                {activeTab === 'expiry' && dashboardData && (
+                    <section className="workspace-grid single-column">
+                        <div className="panel">
+                            <div className="panel-header"><div><div className="section-title">Expiry & waste control</div><h3>Prevent expiry loss and ensure safe collection</h3><p className="muted">Green: over 6 months. Yellow: 3-6 months, prioritise FEFO or ask supplier for credit. Red: under 3 months, review for return. Black: expired, quarantine and arrange signed collection.</p></div></div>
+                            <table className="data-table"><thead><tr><th>Zone</th><th>Medicine</th><th>Batch</th><th>Supplier</th><th>Quantity</th><th>Expiry</th><th>Action</th></tr></thead><tbody>{dashboardData.batches.map((batch) => { const info = getExpirySnapshot(batch.expiry_date, batch.disposal_status); return <tr key={batch.id}><td>{info.expiryBand.toUpperCase()}</td><td>{batch.medicine_name ?? batch.medicine_id}</td><td>{batch.batch_number}</td><td>{batch.supplier}</td><td>{batch.quantity}</td><td>{batch.expiry_date}<small className="muted"> · {info.expiryLabel}</small></td><td><div className="table-actions">{(info.expiryBand === 'yellow' || info.expiryBand === 'red') && <button className="ghost" onClick={() => emailSupplierForExpiry(batch)} disabled={!canEdit}>Email supplier</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Email return request</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'collection_requested' && batch.disposal_status !== 'disposed' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Request collection</button>}{batch.disposal_status === 'collection_requested' && <button className="ghost" onClick={() => confirmCollection(batch)} disabled={!canEdit}>Confirm collection</button>}{batch.disposal_status === 'disposed' && <span>Collection recorded</span>}</div></td></tr>; })}</tbody></table>
+                        </div>
+                    </section>
+                )}
+
                 {activeTab === 'dispense' && dashboardData && (
                     <section className="workspace-grid">
                         <div className="panel">
@@ -1430,6 +1453,8 @@ export default function App() {
                         </div>
                     </section>
                 )}
+
+                {activeTab === 'finance' && dashboardData && <section className="workspace-grid"><div className="panel"><div className="section-title">Sales record</div><h3>Retail sales of this pharmacy</h3><div className="stats-grid compact-grid"><StatCard label="Sales total" value={`₹${(financials?.sales_total ?? 0).toLocaleString()}`} tone="teal" /><StatCard label="Bills generated" value={financials?.sales_count ?? 0} tone="blue" /></div><p className="muted">Every completed sale has an itemised buyer bill and is included in this total.</p></div><div className="panel"><div className="section-title">Purchase record</div><h3>Supplier orders of this pharmacy</h3><div className="stats-grid compact-grid"><StatCard label="Purchase total" value={`₹${(financials?.purchases_total ?? 0).toLocaleString()}`} tone="gold" /><StatCard label="Purchase orders" value={financials?.purchase_count ?? 0} tone="red" /></div><table className="data-table"><thead><tr><th>Order</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>{purchaseOrders.map(order => <tr key={order.id}><td>{order.po_number}</td><td>{order.supplier_name}</td><td>{order.order_date}</td><td>₹{order.total_amount.toLocaleString()}</td><td>{order.status}</td></tr>)}</tbody></table></div></section>}
 
                 {activeTab === 'departments' && dashboardData && <section className="workspace-grid single-column"><div className="panel"><div className="panel-header"><div><div className="section-title">Department custody</div><h3>Medicine currently held by each department</h3><p className="muted">Every dispense transfers a batch here. If an issued batch is expired, notify its original supplier and return it to the pharmacy quarantine store for collection.</p></div></div><table className="data-table"><thead><tr><th>Department</th><th>Medicine</th><th>Batch</th><th>Quantity</th><th>Last transfer</th><th>Action</th></tr></thead><tbody>{departmentInventory.length ? departmentInventory.map(item => { const batch = dashboardData.batches.find(entry => entry.batch_number === item.batch_number); const expired = batch && new Date(batch.expiry_date) < new Date(); return <tr key={item.id}><td>{item.department}</td><td>{item.medicine_name}</td><td>{item.batch_number}</td><td>{item.quantity}</td><td>{new Date(item.updated_at).toLocaleString()}</td><td>{expired && batch ? <button className="ghost" onClick={() => emailSupplierForReturn(batch)}>Email supplier</button> : 'Active stock'}</td></tr>; }) : <tr><td colSpan={6}>No department issues yet.</td></tr>}</tbody></table></div></section>}
 
