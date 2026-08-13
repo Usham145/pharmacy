@@ -28,6 +28,7 @@ from app.schemas import (
     DepartmentRead,
     DashboardSummary,
     InventoryInsight,
+    FinancialSummary,
     ForecastResponse,
     LoginRequest,
     LoginResponse,
@@ -59,6 +60,7 @@ from app.schemas import (
 from app.services.auth import create_access_token, get_current_user, hash_password, require_roles, verify_password
 from app.services.forecast import forecast_consumption
 from app.services.email_notifications import send_procurement_email
+from app.services.seed import add_who_starter_catalogue
 from app.models.entities import AuditLog, HospitalDepartment, InventoryTransaction, MedicineCategory, ProcurementInvoice, ProcurementRequest, PurchaseOrder, SaleInvoice, StorageLocation, Supplier
 
 settings = get_settings()
@@ -76,12 +78,13 @@ def create_pharmacy(payload: PharmacyRegistration, db: Session = Depends(get_db)
         raise HTTPException(status_code=400, detail="Use a unique username for the first pharmacy account")
     if db.query(Pharmacy).filter(Pharmacy.name == payload.name.strip()).first():
         raise HTTPException(status_code=400, detail="A pharmacy with this name already exists")
-    pharmacy = Pharmacy(name=payload.name.strip(), hospital_name=payload.hospital_name, licence_number=payload.licence_number, address=payload.address)
+    pharmacy = Pharmacy(name=payload.name.strip(), hospital_name=payload.hospital_name, licence_number=payload.licence_number, address=payload.address, country=payload.country)
     db.add(pharmacy)
     db.flush()
     user = User(username=payload.admin_username.strip(), full_name=payload.admin_full_name.strip(), email=payload.admin_email, role="admin", password=hash_password(payload.admin_password), pharmacy_id=pharmacy.id)
     db.add(user)
     db.commit()
+    add_who_starter_catalogue(db, pharmacy.id)
     db.refresh(user)
     return PharmacyRead.model_validate(pharmacy)
 
@@ -450,7 +453,17 @@ def list_purchase_orders(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin", "pharmacist")),
 ) -> list[PurchaseOrderRead]:
-    return [PurchaseOrderRead.model_validate(order) for order in db.query(PurchaseOrder).order_by(PurchaseOrder.order_date.desc()).all()]
+    return [PurchaseOrderRead.model_validate(order) for order in db.query(PurchaseOrder).filter(PurchaseOrder.pharmacy_id == current_user.pharmacy_id).order_by(PurchaseOrder.order_date.desc()).all()]
+
+
+@router.get("/reports/financial-summary", response_model=FinancialSummary)
+def financial_summary(db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> FinancialSummary:
+    return FinancialSummary(
+        sales_total=db.query(func.coalesce(func.sum(SaleInvoice.total_amount), 0)).filter(SaleInvoice.pharmacy_id == current_user.pharmacy_id).scalar() or 0,
+        sales_count=db.query(SaleInvoice).filter(SaleInvoice.pharmacy_id == current_user.pharmacy_id).count(),
+        purchases_total=db.query(func.coalesce(func.sum(PurchaseOrder.total_amount), 0)).filter(PurchaseOrder.pharmacy_id == current_user.pharmacy_id).scalar() or 0,
+        purchase_count=db.query(PurchaseOrder).filter(PurchaseOrder.pharmacy_id == current_user.pharmacy_id).count(),
+    )
 
 
 def _procurement_read(request: ProcurementRequest, invoice: ProcurementInvoice | None = None) -> ProcurementRequestRead:
@@ -473,7 +486,7 @@ def _procurement_read(request: ProcurementRequest, invoice: ProcurementInvoice |
 def list_procurement_requests(
     db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin")),
 ) -> list[ProcurementRequestRead]:
-    requests = db.query(ProcurementRequest).order_by(ProcurementRequest.created_at.desc()).all()
+    requests = db.query(ProcurementRequest).filter(ProcurementRequest.pharmacy_id == current_user.pharmacy_id).order_by(ProcurementRequest.created_at.desc()).all()
     invoices = {invoice.procurement_request_id: invoice for invoice in db.query(ProcurementInvoice).all()}
     return [_procurement_read(request, invoices.get(request.id)) for request in requests]
 
@@ -490,7 +503,7 @@ def create_procurement_requests_from_alerts(
 
     existing_medicine_ids = {
         line["medicine_id"]
-        for request in db.query(ProcurementRequest).filter(ProcurementRequest.status.in_(["pending_review", "sent"])).all()
+        for request in db.query(ProcurementRequest).filter(ProcurementRequest.pharmacy_id == current_user.pharmacy_id, ProcurementRequest.status.in_(["pending_review", "sent"])).all()
         for line in json.loads(request.item_lines)
     }
     alerts_by_medicine: dict[int, list[AlertRead]] = {}
@@ -517,6 +530,7 @@ def create_procurement_requests_from_alerts(
             trigger_summary=f"Automatic safety trigger: {reasons} for {medicine.name}.",
             item_lines=json.dumps([line]),
             estimated_total=line["line_total"],
+            pharmacy_id=current_user.pharmacy_id,
         )
         db.add(request)
         created.append(request)
@@ -534,7 +548,7 @@ def create_procurement_requests_from_alerts(
 def approve_and_send_procurement_request(
     request_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin")),
 ) -> ProcurementRequestRead:
-    request = db.query(ProcurementRequest).filter(ProcurementRequest.id == request_id).first()
+    request = db.query(ProcurementRequest).filter(ProcurementRequest.id == request_id, ProcurementRequest.pharmacy_id == current_user.pharmacy_id).first()
     if not request:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Procurement request not found")
     if request.status == "sent":
@@ -550,7 +564,7 @@ def approve_and_send_procurement_request(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="SMTP is not configured. The order has not been sent.")
     request.status = "sent"
     request.sent_at = datetime.utcnow()
-    po = PurchaseOrder(po_number=request.request_number.replace("PR-", "PO-"), supplier_name=request.supplier_name, order_date=date.today(), total_amount=request.estimated_total, status="Sent")
+    po = PurchaseOrder(po_number=request.request_number.replace("PR-", "PO-"), supplier_name=request.supplier_name, order_date=date.today(), total_amount=request.estimated_total, status="Sent", pharmacy_id=current_user.pharmacy_id)
     invoice = ProcurementInvoice(invoice_number=request.request_number.replace("PR-", "INV-"), procurement_request_id=request.id, amount=request.estimated_total)
     db.add_all([po, invoice, AuditLog(actor_username=current_user.username, action="supplier_order_sent", entity_name="procurement_request", entity_id=request.id, description=f"Sent {request.request_number} to {request.supplier_email} and generated {invoice.invoice_number}")])
     db.commit()
@@ -861,7 +875,7 @@ def sell_medicine(
         invoice_number=f"SAL-{datetime.utcnow():%Y%m%d%H%M%S%f}",
         buyer_name=payload.buyer_name.strip(), buyer_phone=payload.buyer_phone.strip() if payload.buyer_phone else None,
         medicine_name=medicine.name, sku=medicine.sku, batch_number=batch.batch_number,
-        quantity=payload.quantity, unit_price=batch.unit_price, total_amount=total, sold_by=current_user.full_name,
+        quantity=payload.quantity, unit_price=batch.unit_price, total_amount=total, sold_by=current_user.full_name, pharmacy_id=current_user.pharmacy_id,
     )
     db.add_all([invoice, InventoryTransaction(
         transaction_date=date.today(), medicine_id=medicine.id, transaction_type="Sale", quantity=payload.quantity,

@@ -21,6 +21,7 @@ class PharmacyCreate(BaseModel):
     hospital_name: str | None = None
     licence_number: str | None = None
     address: str | None = None
+    country: str | None = None
 
 
 class PharmacyRead(PharmacyCreate):
@@ -107,6 +108,13 @@ class PurchaseOrderRead(BaseModel):
     order_date: date
     total_amount: float
     status: str
+
+
+class FinancialSummary(BaseModel):
+    sales_total: float
+    sales_count: int
+    purchases_total: float
+    purchase_count: int
 
 
 class ProcurementLine(BaseModel):
