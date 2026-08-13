@@ -52,6 +52,22 @@ def on_startup() -> None:
     if "pharmacy_id" not in medicine_columns:
         with engine.begin() as connection:
             connection.execute(text("ALTER TABLE medicines ADD COLUMN pharmacy_id INTEGER"))
+    with engine.begin() as connection:
+        pharmacy_columns = {column["name"] for column in inspect(engine).get_columns("pharmacies")}
+        if "country" not in pharmacy_columns:
+            connection.execute(text("ALTER TABLE pharmacies ADD COLUMN country VARCHAR(64)"))
+        medicine_columns = {column["name"] for column in inspect(engine).get_columns("medicines")}
+        if "reference_source" not in medicine_columns:
+            connection.execute(text("ALTER TABLE medicines ADD COLUMN reference_source VARCHAR(128)"))
+        po_columns = {column["name"] for column in inspect(engine).get_columns("purchase_orders")}
+        if "pharmacy_id" not in po_columns:
+            connection.execute(text("ALTER TABLE purchase_orders ADD COLUMN pharmacy_id INTEGER"))
+        request_columns = {column["name"] for column in inspect(engine).get_columns("procurement_requests")}
+        if "pharmacy_id" not in request_columns:
+            connection.execute(text("ALTER TABLE procurement_requests ADD COLUMN pharmacy_id INTEGER"))
+        sales_columns = {column["name"] for column in inspect(engine).get_columns("sale_invoices")}
+        if "pharmacy_id" not in sales_columns:
+            connection.execute(text("ALTER TABLE sale_invoices ADD COLUMN pharmacy_id INTEGER"))
     db = next(get_db())
     try:
         seed_demo_data(db)

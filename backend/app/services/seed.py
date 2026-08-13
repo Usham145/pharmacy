@@ -25,6 +25,35 @@ from app.services.auth import hash_password
 
 settings = get_settings()
 
+# Generic names only: this is a WHO EML-inspired starter catalogue, not a claim
+# that a medicine is approved, stocked, or available in every country.
+WHO_STARTER_MEDICINES = [
+    ("Paracetamol", "Analgesic", "tablet", "Pain and fever relief"),
+    ("Amoxicillin", "Antibiotic", "capsule", "Antibiotic; follow local stewardship policy"),
+    ("Ceftriaxone", "Antibiotic", "vial", "Injectable antibiotic"),
+    ("Metformin", "Endocrine", "tablet", "Diabetes treatment"),
+    ("Insulin human", "Hormone", "vial", "Diabetes treatment"),
+    ("Amlodipine", "Cardiac", "tablet", "Hypertension treatment"),
+    ("Salbutamol", "Respiratory", "inhaler", "Bronchodilator"),
+    ("Oral rehydration salts", "Gastrointestinal", "sachet", "Oral rehydration"),
+    ("Omeprazole", "Gastrointestinal", "capsule", "Acid suppression"),
+    ("Fluconazole", "Antifungal", "tablet", "Antifungal medicine"),
+    ("Acyclovir", "Antiviral", "tablet", "Antiviral medicine"),
+    ("Dexamethasone", "Emergency", "vial", "Corticosteroid"),
+    ("Adrenaline", "Emergency", "ampoule", "Emergency medicine"),
+    ("Normal saline", "IV Fluids", "bottle", "Intravenous fluid"),
+    ("Oxytocin", "Hormone", "ampoule", "Obstetric medicine"),
+]
+
+
+def add_who_starter_catalogue(db: Session, pharmacy_id: int) -> None:
+    """Create an empty, source-labelled generic catalogue for a newly registered pharmacy."""
+    if db.query(Medicine).filter(Medicine.pharmacy_id == pharmacy_id).count():
+        return
+    for index, (name, category, unit, description) in enumerate(WHO_STARTER_MEDICINES, start=1):
+        db.add(Medicine(name=name, sku=f"WHO-{pharmacy_id:04d}-{index:03d}", category=category, unit=unit, reorder_level=25, ideal_stock=100, description=description, reference_source="WHO Model List of Essential Medicines", pharmacy_id=pharmacy_id))
+    db.commit()
+
 
 def _days_ago(days: int) -> date:
     return date.today() - timedelta(days=days)
@@ -116,9 +145,9 @@ def seed_demo_data(db: Session) -> None:
     db.add_all([location for location in locations if location.code not in existing_locations])
 
     purchase_orders = [
-        PurchaseOrder(po_number="PO1001", supplier_name=suppliers[0].company_name, order_date=date.today() - timedelta(days=12), total_amount=25000.0, status="Received"),
-        PurchaseOrder(po_number="PO1002", supplier_name=suppliers[1].company_name, order_date=date.today() - timedelta(days=7), total_amount=18250.0, status="In Transit"),
-        PurchaseOrder(po_number="PO1003", supplier_name=suppliers[2].company_name, order_date=date.today() - timedelta(days=3), total_amount=9600.0, status="Pending"),
+        PurchaseOrder(po_number="PO1001", supplier_name=suppliers[0].company_name, order_date=date.today() - timedelta(days=12), total_amount=25000.0, status="Received", pharmacy_id=pharmacy.id),
+        PurchaseOrder(po_number="PO1002", supplier_name=suppliers[1].company_name, order_date=date.today() - timedelta(days=7), total_amount=18250.0, status="In Transit", pharmacy_id=pharmacy.id),
+        PurchaseOrder(po_number="PO1003", supplier_name=suppliers[2].company_name, order_date=date.today() - timedelta(days=3), total_amount=9600.0, status="Pending", pharmacy_id=pharmacy.id),
     ]
     existing_pos = {purchase_order.po_number for purchase_order in db.query(PurchaseOrder).all()}
     db.add_all([purchase_order for purchase_order in purchase_orders if purchase_order.po_number not in existing_pos])
@@ -257,4 +286,5 @@ def seed_demo_data(db: Session) -> None:
         )
 
     db.query(Medicine).filter(Medicine.pharmacy_id.is_(None)).update({Medicine.pharmacy_id: pharmacy.id}, synchronize_session=False)
+    db.query(PurchaseOrder).filter(PurchaseOrder.pharmacy_id.is_(None)).update({PurchaseOrder.pharmacy_id: pharmacy.id}, synchronize_session=False)
     db.commit()

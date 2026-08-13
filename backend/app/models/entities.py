@@ -70,6 +70,7 @@ class PurchaseOrder(Base):
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(32), default="Pending", nullable=False)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
 
 
 class ProcurementRequest(Base):
@@ -86,6 +87,7 @@ class ProcurementRequest(Base):
     admin_notified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
 
 
 class Pharmacy(Base):
@@ -97,6 +99,7 @@ class Pharmacy(Base):
     hospital_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     licence_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     address: Mapped[str | None] = mapped_column(Text, nullable=True)
+    country: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -126,6 +129,7 @@ class SaleInvoice(Base):
     total_amount: Mapped[float] = mapped_column(Float, nullable=False)
     sold_by: Mapped[str] = mapped_column(String(64), nullable=False)
     sold_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
 
 
 class InventoryTransaction(Base):
@@ -178,6 +182,7 @@ class Medicine(Base):
     ideal_stock: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reference_source: Mapped[str | None] = mapped_column(String(128), nullable=True)
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
