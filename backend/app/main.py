@@ -40,6 +40,8 @@ def on_startup() -> None:
     with engine.begin() as connection:
         if "unit_price" not in batch_columns:
             connection.execute(text("ALTER TABLE batch_stocks ADD COLUMN unit_price FLOAT NOT NULL DEFAULT 50"))
+        if "recovery_unit_price" not in batch_columns:
+            connection.execute(text("ALTER TABLE batch_stocks ADD COLUMN recovery_unit_price FLOAT NOT NULL DEFAULT 0"))
         if "disposal_status" not in batch_columns:
             connection.execute(text("ALTER TABLE batch_stocks ADD COLUMN disposal_status VARCHAR(32) NOT NULL DEFAULT 'active'"))
         if "disposal_method" not in batch_columns:
@@ -68,6 +70,11 @@ def on_startup() -> None:
         sales_columns = {column["name"] for column in inspect(engine).get_columns("sale_invoices")}
         if "pharmacy_id" not in sales_columns:
             connection.execute(text("ALTER TABLE sale_invoices ADD COLUMN pharmacy_id INTEGER"))
+        supplier_columns = {column["name"] for column in inspect(engine).get_columns("suppliers")}
+        if "waste_vendor" not in supplier_columns:
+            connection.execute(text("ALTER TABLE suppliers ADD COLUMN waste_vendor BOOLEAN NOT NULL DEFAULT 0"))
+        if "waste_license_number" not in supplier_columns:
+            connection.execute(text("ALTER TABLE suppliers ADD COLUMN waste_license_number VARCHAR(64)"))
     db = next(get_db())
     try:
         seed_demo_data(db)

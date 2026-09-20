@@ -40,6 +40,8 @@ class Supplier(Base):
     gst_number: Mapped[str] = mapped_column(String(32), nullable=False)
     address: Mapped[str] = mapped_column(Text, nullable=False)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    waste_vendor: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    waste_license_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class HospitalDepartment(Base):
@@ -132,6 +134,27 @@ class SaleInvoice(Base):
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
 
 
+class ExpiryCompanyTransfer(Base):
+    __tablename__ = "expiry_company_transfers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    quote_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    invoice_number: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
+    batch_id: Mapped[int] = mapped_column(ForeignKey("batch_stocks.id"), nullable=False, index=True)
+    medicine_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    batch_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    company_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    company_contact: Mapped[str] = mapped_column(String(128), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    recovery_unit_price: Mapped[float] = mapped_column(Float, nullable=False)
+    total_amount: Mapped[float] = mapped_column(Float, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="quoted", nullable=False)
+    quoted_on: Mapped[date] = mapped_column(Date, nullable=False)
+    transferred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    transfer_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
+
+
 class InventoryTransaction(Base):
     __tablename__ = "inventory_transactions"
 
@@ -199,6 +222,7 @@ class BatchStock(Base):
     supplier: Mapped[str] = mapped_column(String(128), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)
     unit_price: Mapped[float] = mapped_column(Float, default=50.0, nullable=False)
+    recovery_unit_price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     received_on: Mapped[date] = mapped_column(Date, nullable=False)
     expiry_date: Mapped[date] = mapped_column(Date, nullable=False)
     location: Mapped[str] = mapped_column(String(64), default="Main Store", nullable=False)
@@ -220,3 +244,39 @@ class ConsumptionRecord(Base):
     ward: Mapped[str] = mapped_column(String(64), nullable=False)
 
     medicine: Mapped[Medicine] = relationship(back_populates="consumption_records")
+
+
+class MedicalEquipment(Base):
+    __tablename__ = "medical_equipment"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    asset_number: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    equipment_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    waste_category: Mapped[str] = mapped_column(String(64), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    unit: Mapped[str] = mapped_column(String(24), nullable=False, default="piece")
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    condition: Mapped[str] = mapped_column(String(32), nullable=False, default="usable")
+    waste_status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    location: Mapped[str] = mapped_column(String(64), nullable=False, default="Main Store")
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WastePickup(Base):
+    __tablename__ = "waste_pickups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pickup_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    vendor_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    vendor_contact: Mapped[str] = mapped_column(String(128), nullable=False)
+    scheduled_date: Mapped[date] = mapped_column(Date, nullable=False)
+    waste_category: Mapped[str] = mapped_column(String(64), nullable=False)
+    item_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="scheduled", nullable=False)
+    manifest_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    certificate_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

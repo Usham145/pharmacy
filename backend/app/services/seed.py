@@ -45,6 +45,32 @@ WHO_STARTER_MEDICINES = [
     ("Oxytocin", "Hormone", "ampoule", "Obstetric medicine"),
 ]
 
+ADDITIONAL_DEMO_MEDICINES = [
+    ("Aspirin 75mg", "Cardiac", "tablet"), ("Clopidogrel 75mg", "Cardiac", "tablet"), ("Bisoprolol 5mg", "Cardiac", "tablet"),
+    ("Carvedilol 6.25mg", "Cardiac", "tablet"), ("Enalapril 5mg", "Cardiac", "tablet"), ("Hydrochlorothiazide 25mg", "Cardiac", "tablet"),
+    ("Spironolactone 25mg", "Cardiac", "tablet"), ("Simvastatin 20mg", "Cardiac", "tablet"), ("Warfarin 5mg", "Cardiac", "tablet"),
+    ("Heparin 5000 IU", "Cardiac", "vial"), ("Cefixime 200mg", "Antibiotic", "tablet"), ("Clindamycin 300mg", "Antibiotic", "capsule"),
+    ("Doxycycline 100mg", "Antibiotic", "capsule"), ("Levofloxacin 500mg", "Antibiotic", "tablet"), ("Piperacillin Tazobactam", "Antibiotic", "vial"),
+    ("Vancomycin 500mg", "Critical Care", "vial"), ("Gentamicin 80mg", "Antibiotic", "ampoule"), ("Metronidazole 500mg", "Antibiotic", "tablet"),
+    ("Nitrofurantoin 100mg", "Urology", "capsule"), ("Albendazole 400mg", "Antiparasitic", "tablet"), ("Acyclovir Ointment", "Antiviral", "tube"),
+    ("Oseltamivir 75mg", "Antiviral", "capsule"), ("Nystatin Oral Suspension", "Antifungal", "bottle"), ("Ketoconazole Cream", "Antifungal", "tube"),
+    ("Hydrocortisone Cream", "Dermatology", "tube"), ("Mupirocin Ointment", "Dermatology", "tube"), ("Calamine Lotion", "Dermatology", "bottle"),
+    ("Loratadine 10mg", "Antihistamine", "tablet"), ("Chlorpheniramine 4mg", "Antihistamine", "tablet"), ("Prednisolone 5mg", "Hormone", "tablet"),
+    ("Budesonide Nebules", "Respiratory", "ampoule"), ("Ipratropium Nebules", "Respiratory", "ampoule"), ("Theophylline 200mg", "Respiratory", "tablet"),
+    ("Guaifenesin Syrup", "Respiratory", "bottle"), ("Dextromethorphan Syrup", "Respiratory", "bottle"), ("Benzylpenicillin", "Injection", "vial"),
+    ("Lidocaine 2%", "Anaesthesia", "vial"), ("Bupivacaine 0.5%", "Anaesthesia", "vial"), ("Ketamine 50mg", "Anaesthesia", "vial"),
+    ("Propofol 10mg/ml", "Anaesthesia", "vial"), ("Mannitol 20%", "Emergency", "bottle"), ("Magnesium Sulfate", "Emergency", "ampoule"),
+    ("Calcium Gluconate", "Emergency", "ampoule"), ("Sodium Bicarbonate", "Emergency", "ampoule"), ("Atropine 1mg", "Emergency", "ampoule"),
+    ("Noradrenaline 4mg", "Critical Care", "ampoule"), ("Dopamine 200mg", "Critical Care", "ampoule"), ("Fentanyl 50mcg", "Critical Care", "ampoule"),
+    ("Morphine 10mg", "Critical Care", "ampoule"), ("Potassium Chloride", "IV Fluids", "ampoule"), ("Dextrose 25%", "IV Fluids", "ampoule"),
+    ("Dextrose 5% 500ml", "IV Fluids", "bottle"), ("Paediatric ORS", "Gastrointestinal", "sachet"), ("Domperidone 10mg", "Gastrointestinal", "tablet"),
+    ("Sucralfate Suspension", "Gastrointestinal", "bottle"), ("Bisacodyl 5mg", "Gastrointestinal", "tablet"), ("Tranexamic Acid", "Emergency", "ampoule"),
+    ("Vitamin B Complex", "Vitamin", "tablet"), ("Calcium Carbonate", "Vitamin", "tablet"), ("Zinc Sulfate", "Vitamin", "tablet"),
+    ("Cyanocobalamin", "Vitamin", "ampoule"), ("Erythropoietin 4000 IU", "Renal", "vial"), ("Tamsulosin 0.4mg", "Urology", "capsule"),
+    ("Carbamazepine 200mg", "Neurology", "tablet"), ("Sodium Valproate", "Neurology", "tablet"), ("Sertraline 50mg", "Psychiatry", "tablet"),
+    ("Haloperidol 5mg", "Psychiatry", "ampoule"), ("Artificial Tears", "Ophthalmology", "bottle"), ("Timolol Eye Drops", "Ophthalmology", "bottle"),
+]
+
 
 def add_who_starter_catalogue(db: Session, pharmacy_id: int) -> None:
     """Create an empty, source-labelled generic catalogue for a newly registered pharmacy."""
@@ -121,6 +147,15 @@ def seed_demo_data(db: Session) -> None:
     ]
     existing_suppliers = {supplier.company_name for supplier in db.query(Supplier).all()}
     db.add_all([supplier for supplier in suppliers if supplier.company_name not in existing_suppliers])
+    waste_vendors = [
+        Supplier(company_name="GreenShield BioWaste Services", contact_person="Anita Rao", phone="9000001001", email="collections@greenshield.example", gst_number="19WASTE1001F1Z5", address="Kolkata, West Bengal", waste_vendor=True, waste_license_number="BMW- WB-2026-001"),
+        Supplier(company_name="MedCycle Safe Disposal", contact_person="Vikram Singh", phone="9000001002", email="pickup@medcycle.example", gst_number="27WASTE1002F1Z6", address="Mumbai, Maharashtra", waste_vendor=True, waste_license_number="BMW- MH-2026-014"),
+        Supplier(company_name="SterileRoute Environmental", contact_person="Meera Iyer", phone="9000001003", email="vendor@sterileroute.example", gst_number="07WASTE1003F1Z7", address="New Delhi", waste_vendor=True, waste_license_number="BMW- DL-2026-009"),
+        Supplier(company_name="SafeBurn Medical Waste", contact_person="Rakesh Das", phone="9000001004", email="support@safeburn.example", gst_number="09WASTE1004F1Z8", address="Lucknow, Uttar Pradesh", waste_vendor=True, waste_license_number="BMW- UP-2026-021"),
+    ]
+    existing_supplier_names = {supplier.company_name for supplier in db.query(Supplier).all()}
+    db.add_all([vendor for vendor in waste_vendors if vendor.company_name not in existing_supplier_names])
+    db.flush()
 
     departments = [
         HospitalDepartment(name="Emergency", floor="Ground", contact_extension="1001"),
@@ -203,6 +238,10 @@ def seed_demo_data(db: Session) -> None:
         Medicine(name="Folic Acid 5mg", sku="MED-039", category="Vitamin", unit="tablet", reorder_level=70, ideal_stock=210, description="Vitamin B9 supplementation"),
         Medicine(name="Ferrous Ascorbate", sku="MED-040", category="Vitamin", unit="tablet", reorder_level=70, ideal_stock=210, description="Iron supplementation"),
     ]
+    medicines.extend(
+        Medicine(name=name, sku=f"MED-{index:03d}", category=category, unit=unit, reorder_level=60, ideal_stock=240, description=f"Generic {name} starter catalogue item")
+        for index, (name, category, unit) in enumerate(ADDITIONAL_DEMO_MEDICINES, start=41)
+    )
     existing_medicines = {medicine.sku for medicine in db.query(Medicine).all()}
     medicine_objects: list[Medicine] = []
     for medicine in medicines:
@@ -221,9 +260,10 @@ def seed_demo_data(db: Session) -> None:
             continue
         if db.query(BatchStock).filter(BatchStock.medicine_id == medicine.id).count() > 0:
             continue
-        base_quantity = medicine.ideal_stock - (medicine_index * 28)
         for batch_index in range(4):
-            quantity = max(15, base_quantity - batch_index * rng.randint(15, 60))
+            lower_stock = max(20, int(medicine.ideal_stock * 0.25))
+            upper_stock = max(lower_stock + 20, int(medicine.ideal_stock * 0.95))
+            quantity = rng.randint(lower_stock, upper_stock)
             expiry_offset = 20 + medicine_index * 12 + batch_index * 38
             batch = BatchStock(
                 medicine_id=medicine.id,
@@ -233,6 +273,7 @@ def seed_demo_data(db: Session) -> None:
                 received_on=_days_ago(140 - batch_index * 30),
                 expiry_date=date.today() + timedelta(days=expiry_offset if batch_index != 0 else expiry_offset // 2),
                 location=locations[batch_index % len(locations)].code,
+                recovery_unit_price=round(2.5 + (medicine_index % 5) * 1.5, 2),
             )
             db.add(batch)
 
@@ -262,6 +303,21 @@ def seed_demo_data(db: Session) -> None:
                 )
             )
 
+    # Keep a visible, deterministic expiry test set in the main demo pharmacy.
+    # Four batches expire within a week and six more within the following month.
+    expiry_offsets = [3, 5, 7, 9, 12, 16, 20, 24, 27, 30]
+    expiry_medicines = db.query(Medicine).filter(Medicine.pharmacy_id == pharmacy.id, Medicine.sku.like("MED-%")).order_by(Medicine.sku.asc()).limit(10).all()
+    for medicine, expiry_offset in zip(expiry_medicines, expiry_offsets):
+        batch_number = f"{medicine.sku}-EXP-01"
+        if not db.query(BatchStock).filter(BatchStock.batch_number == batch_number).first():
+            db.add(BatchStock(
+                medicine_id=medicine.id, batch_number=batch_number,
+                supplier=suppliers[medicine.id % len(suppliers)].company_name,
+                quantity=24 + (medicine.id % 4) * 6, unit_price=45.0 + medicine.id,
+                recovery_unit_price=round(5.0 + (medicine.id % 5) * 1.5, 2), received_on=_days_ago(120),
+                expiry_date=date.today() + timedelta(days=expiry_offset), location="A1",
+            ))
+
         db.add(
             InventoryTransaction(
                 transaction_date=date.today() - timedelta(days=1),
@@ -273,6 +329,39 @@ def seed_demo_data(db: Session) -> None:
                 note="Replenishment entry",
             )
         )
+
+    additional_stores = [
+        ("CityCare Medical Store", "citycare_admin", "citycare123", "CityCare Pharmacist", "citycare_pharmacist", "citypharm123", "Kolkata"),
+        ("Lifeline Hospital Pharmacy", "lifeline_admin", "lifeline123", "Lifeline Pharmacist", "lifeline_pharmacist", "lifepharm123", "Mumbai"),
+        ("Sunrise Medical Centre", "sunrise_admin", "sunrise123", "Sunrise Pharmacist", "sunrise_pharmacist", "sunpharm123", "New Delhi"),
+        ("WellSpring Community Pharmacy", "wellspring_admin", "wellspring123", "WellSpring Pharmacist", "wellspring_pharmacist", "wellpharm123", "Bengaluru"),
+    ]
+    waste_vendor_names = [vendor.company_name for vendor in waste_vendors]
+    recovery_prices = [3.0, 4.5, 7.5, 10.0, 15.0]
+    for store_index, (store_name, admin_username, admin_password, pharmacist_name, pharmacist_username, pharmacist_password, city) in enumerate(additional_stores, start=1):
+        store = db.query(Pharmacy).filter(Pharmacy.name == store_name).first()
+        if not store:
+            store = Pharmacy(name=store_name, hospital_name=f"{store_name} Hospital", licence_number=f"DEMO-{store_index + 1:03d}", address=f"{city} healthcare district", country="India")
+            db.add(store)
+            db.flush()
+        if not db.query(User).filter(User.username == admin_username).first():
+            db.add(User(username=admin_username, full_name=f"{store_name} Administrator", email=f"{admin_username}@demo.example", role="admin", password=hash_password(admin_password), pharmacy_id=store.id))
+        if not db.query(User).filter(User.username == pharmacist_username).first():
+            db.add(User(username=pharmacist_username, full_name=pharmacist_name, email=f"{pharmacist_username}@demo.example", role="pharmacist", password=hash_password(pharmacist_password), pharmacy_id=store.id))
+        for medicine_index in range(5):
+            sku = f"STORE{store_index:02d}-MED-{medicine_index + 1:03d}"
+            medicine = db.query(Medicine).filter(Medicine.sku == sku).first()
+            if not medicine:
+                medicine = Medicine(name=["Paracetamol 500mg", "Amoxicillin 250mg", "Metformin 500mg", "Salbutamol Inhaler", "Oral Rehydration Salts"][medicine_index], sku=sku, category=["Analgesic", "Antibiotic", "Endocrine", "Respiratory", "Gastrointestinal"][medicine_index], unit=["tablet", "capsule", "tablet", "inhaler", "sachet"][medicine_index], reorder_level=50, ideal_stock=240, description="Synthetic demo stock for pharmacy operations", pharmacy_id=store.id)
+                db.add(medicine)
+                db.flush()
+            if db.query(BatchStock).filter(BatchStock.medicine_id == medicine.id).count() == 0:
+                for batch_index in range(4):
+                    is_expiring = batch_index == 0
+                    db.add(BatchStock(medicine_id=medicine.id, batch_number=f"{sku}-B{batch_index + 1}", supplier=suppliers[(medicine_index + store_index) % len(suppliers)].company_name, quantity=5 if is_expiring else 80, unit_price=50.0, recovery_unit_price=recovery_prices[medicine_index], received_on=_days_ago(60), expiry_date=date.today() + timedelta(days=3 + medicine_index if is_expiring else 180 + batch_index * 90), location="QUARANTINE" if is_expiring else "Main Store"))
+
+    for batch in db.query(BatchStock).filter(BatchStock.recovery_unit_price <= 0).all():
+        batch.recovery_unit_price = recovery_prices[(batch.medicine_id - 1) % len(recovery_prices)]
 
     if db.query(AuditLog).count() == 0:
         db.add(

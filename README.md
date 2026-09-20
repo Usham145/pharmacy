@@ -34,7 +34,7 @@
     - Admin: full access
     - Pharmacist: stock and alert management
 
-    The viewer role has been removed. Register a new hospital/pharmacy workspace with `POST /api/v1/pharmacies/register`; the request includes pharmacy details plus `admin_username`, `admin_full_name`, `admin_email`, and `admin_password`. Medicine and batch operations are scoped to the signed-in pharmacy.
+    The viewer role has been removed. Register a new hospital/pharmacy workspace with `POST /api/v1/pharmacies`; the request includes pharmacy details plus `admin_username`, `admin_full_name`, `admin_email`, and `admin_password`. Medicine and batch operations are scoped to the signed-in pharmacy.
 
     ## Features
     - Multi-page role-aware workflow: login, personal work summary, dashboard, receiving, dispensing, reference data, and reports
@@ -68,3 +68,20 @@ The system never claims that synthetic stock, supplier contact details, prices, 
     ## Database deployment
 
     The local demo can use SQLite, but the submitted/deployed configuration is PostgreSQL 16. Set `DATABASE_URL` from `.env.example` before starting the backend. The database stores no real patient records; the supplied catalogue, suppliers, stock and consumption history are realistic synthetic hospital-operational data.
+
+    ## SMTP communication setup
+
+    The Expiry & Waste page contains the SMTP delivery check. It is used for near-expiry reminders, supplier return requests, critical stock notifications, and the manual test email. Configure these values in the local `.env` file; never commit a real mailbox password.
+
+    Demo configuration identity for local documentation:
+
+    - SMTP ID: `pharmacy-demo@example.com`
+    - SMTP password: `replace-with-provider-app-password`
+
+    These are placeholders, not a live mailbox. Replace them with the SMTP username and provider-specific app password from the chosen mail provider. The application login demo accounts remain `admin/admin123` and `pharmacist/pharmacist123`.
+
+    For Gmail, `SMTP_USERNAME` must be the Gmail address and `SMTP_PASSWORD` must be a **16-character Google App Password**, not the normal Gmail password. Enable 2-Step Verification on that account, create an App Password named `ArogyaMitra`, then place the generated value in the root `.env`. Keep `SMTP_FROM_EMAIL` equal to the authenticated Gmail address while testing. The Expiry & Waste communication panel can then send a test email; invalid credentials are reported as an SMTP delivery error instead of an unexplained server failure.
+
+    ## Expiry company recovery records
+
+    Expired batches are never sold through normal Sales & Billing. From **Expiry & waste**, staff can create a company recovery quote using the batch recovery value. The quote remains open until a company receipt or recovery certificate reference is entered. Confirmation then creates an `EXI-...` recovery invoice number, removes only the transferred quantity from the expired batch, marks the batch disposed, and records the movement and audit event. This preserves a separate expiry-only document trail for quotes, invoices, company details, quantities, values, and handover references.

@@ -78,6 +78,8 @@ class SupplierRead(BaseModel):
     gst_number: str
     address: str
     active: bool
+    waste_vendor: bool = False
+    waste_license_number: str | None = None
 
 
 class DepartmentRead(BaseModel):
@@ -218,6 +220,7 @@ class BatchRead(BaseModel):
     supplier: str
     quantity: int
     unit_price: float
+    recovery_unit_price: float = 0
     received_on: date
     expiry_date: date
     location: str
@@ -234,6 +237,7 @@ class BatchCreate(BaseModel):
     supplier: str
     quantity: int
     unit_price: float = 50.0
+    recovery_unit_price: float = 0.0
     received_on: date
     expiry_date: date
     location: str = "Main Store"
@@ -245,9 +249,65 @@ class BatchUpdate(BaseModel):
     supplier: str | None = None
     quantity: int | None = None
     unit_price: float | None = None
+    recovery_unit_price: float | None = None
     received_on: date | None = None
     expiry_date: date | None = None
     location: str | None = None
+
+
+class EquipmentCreate(BaseModel):
+    name: str
+    asset_number: str
+    equipment_type: str
+    waste_category: str
+    quantity: int
+    unit: str = "piece"
+    expiry_date: date | None = None
+    condition: str = "usable"
+    location: str = "Main Store"
+
+
+class EquipmentRead(EquipmentCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    waste_status: str
+
+
+class EquipmentUpdate(BaseModel):
+    name: str | None = None
+    equipment_type: str | None = None
+    waste_category: str | None = None
+    quantity: int | None = None
+    unit: str | None = None
+    expiry_date: date | None = None
+    condition: str | None = None
+    location: str | None = None
+    waste_status: str | None = None
+
+
+class WastePickupCreate(BaseModel):
+    vendor_name: str
+    vendor_contact: str
+    scheduled_date: date
+    waste_category: str
+    item_summary: str
+    notes: str | None = None
+
+
+class WastePickupRead(WastePickupCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    pickup_number: str
+    status: str
+    manifest_number: str | None = None
+    certificate_reference: str | None = None
+
+
+class WastePickupUpdate(BaseModel):
+    status: str | None = None
+    manifest_number: str | None = None
+    certificate_reference: str | None = None
+    notes: str | None = None
 
 
 class DisposalRequest(BaseModel):
@@ -270,6 +330,37 @@ class DepartmentInventoryRead(BaseModel):
 class CollectionConfirmation(BaseModel):
     handover_reference: str
     note: str | None = None
+
+
+class ExpiryCompanyQuoteCreate(BaseModel):
+    company_name: str
+    company_contact: str
+    quantity: int
+    recovery_unit_price: float | None = None
+
+
+class ExpiryCompanyQuoteRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    quote_number: str
+    invoice_number: str | None = None
+    batch_id: int
+    medicine_name: str
+    batch_number: str
+    company_name: str
+    company_contact: str
+    quantity: int
+    recovery_unit_price: float
+    total_amount: float
+    status: str
+    quoted_on: date
+    transferred_on: date | None = None
+    transfer_reference: str | None = None
+
+
+class ExpiryCompanyTransferConfirmation(BaseModel):
+    transfer_reference: str
 
 
 class SMTPStatus(BaseModel):
