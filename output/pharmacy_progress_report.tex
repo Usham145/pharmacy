@@ -1,0 +1,328 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+\usepackage{lastpage}
+
+\definecolor{iiitblue}{HTML}{123B63}
+\definecolor{lightblue}{HTML}{EAF2F8}
+\definecolor{lightgreen}{HTML}{EAF7EF}
+\definecolor{lightorange}{HTML}{FFF4E5}
+\definecolor{lightred}{HTML}{FDECEC}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=iiitblue,
+    urlcolor=iiitblue,
+    pdftitle={Pharmacy Inventory and Expiry Management System - Progress Report},
+    pdfauthor={Shashi Prakash Yadav, Mohd Usham, Rishabh Kumar, Ritik Aryan}
+}
+
+\titleformat{\section}{\Large\bfseries\color{iiitblue}}{\thesection}{0.75em}{}
+\titleformat{\subsection}{\large\bfseries\color{iiitblue}}{\thesubsection}{0.75em}{}
+\pagestyle{fancy}
+\fancyhf{}
+\lhead{\small Pharmacy Inventory and Expiry Management System}
+\rhead{\small Progress Report}
+\cfoot{\small Page \thepage\ of \pageref{LastPage}}
+\setlength{\headheight}{15pt}
+
+\newcommand{\statusdone}{\textcolor{green!45!black}{\textbf{Completed}}}
+\newcommand{\statusprogress}{\textcolor{orange!75!black}{\textbf{In progress}}}
+\newcommand{\statusremaining}{\textcolor{red!70!black}{\textbf{Remaining}}}
+\newcommand{\projecttitle}{Pharmacy Inventory \& Expiry Management System}
+
+\begin{document}
+
+\begin{titlepage}
+\thispagestyle{empty}
+\centering
+\vspace*{1.0cm}
+{\Large\bfseries INDIAN INSTITUTE OF\\[0.15cm] INFORMATION TECHNOLOGY, KALYANI\par}
+\vspace{1.5cm}
+{\color{iiitblue}\rule{\textwidth}{1.2pt}\par}
+\vspace{0.6cm}
+{\Huge\bfseries \projecttitle\par}
+\vspace{0.35cm}
+{\Large\bfseries Updated Project Progress Report\par}
+\vspace{0.6cm}
+{\color{iiitblue}\rule{\textwidth}{1.2pt}\par}
+\vfill
+\begin{tabular}{rl}
+\textbf{Project Mentor:} & Dr. Sudeshna Mondal\\[0.25cm]
+\textbf{Students:} & Shashi Prakash Yadav \; [CSE/23096/1144]\\
+& Mohd Usham \; [ECE/23125/1173]\\
+& Rishabh Kumar \; [ECE/23133/1181]\\
+& Ritik Aryan \; [ECE/23134/1182]\\[0.25cm]
+\textbf{Report date:} & 30 October 2026
+\end{tabular}
+\vfill
+{\large\itshape Status of work completed to date and plan for completion\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
+This report presents the current development status of the \projecttitle. The
+system is being developed as a full-stack web application to reduce medicine
+wastage, prevent stock-outs, improve batch-level traceability, and support
+pharmacy staff in daily inventory operations. The implemented solution combines
+a React and Vite frontend, a FastAPI and SQLAlchemy backend, a relational
+database, role-based access control, expiry monitoring, FEFO dispensing,
+inventory forecasting, procurement workflows, sales records, and exportable
+reports.
+
+The core application workflow is now implemented and connected end to end for
+the main demonstration scenarios. The remaining work is primarily focused on
+systematic testing, production deployment hardening, usability refinement,
+documentation, and final evaluation using representative test data. This
+document records both the completed work and the activities still required
+before final submission.
+
+\section{Project Objective and Scope}
+\subsection{Problem Statement}
+Manual registers and spreadsheets make it difficult to identify medicines that
+are approaching expiry, select the correct batch for dispensing, maintain
+accurate stock balances, and coordinate procurement. These limitations can lead
+to avoidable wastage, stock-outs, delayed reporting, and weak audit trails.
+
+\subsection{Objectives}
+\begin{enumerate}[leftmargin=*]
+    \item Maintain a structured catalogue of medicines, suppliers, batches, and
+    pharmacy workspaces.
+    \item Track stock quantities and expiry dates at batch level.
+    \item Apply the First-Expiry-First-Out (FEFO) rule during dispensing.
+    \item Generate low-stock, near-expiry, and demand-based replenishment
+    recommendations.
+    \item Record sales, purchases, returns, disposal, and operational audit
+    events.
+    \item Provide role-aware access for pharmacy administrators and pharmacists.
+    \item Produce downloadable CSV and PDF reports for operational review.
+\end{enumerate}
+
+\section{Technology and Architecture}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{>{\bfseries}p{0.25\textwidth}X}
+\toprule
+Layer & Technologies and implementation \\
+\midrule
+Frontend & React 18, TypeScript, Vite, Chart.js, responsive CSS interface \\
+Backend & Python, FastAPI, Pydantic schemas, SQLAlchemy ORM \\
+Database & SQLite for local demonstration and PostgreSQL-ready configuration \\
+Forecasting & XGBoost-based demand forecasting with a deterministic fallback \\
+Reporting & CSV exports and PDF report endpoints \\
+Communication & SMTP configuration for expiry and operational notifications \\
+Deployment & Local development workflow with Docker Compose support for PostgreSQL \\
+\bottomrule
+\end{tabularx}
+\caption{Current technology stack}
+\end{table}
+
+The application is organized as a multi-pharmacy platform. Records are linked
+to the signed-in pharmacy workspace so that medicines, batches, procurement,
+sales, and reports remain isolated between pharmacies. The backend creates and
+updates the required database structures at startup and seeds synthetic
+demonstration data for local evaluation.
+
+\section{Work Completed to Date}
+\subsection{Foundation and Access Control}
+\begin{itemize}[leftmargin=*]
+    \item Implemented a FastAPI backend with structured API routes, database
+    sessions, ORM entities, validation schemas, and application configuration.
+    \item Implemented pharmacy registration and multi-tenant workspace
+    initialization.
+    \item Implemented login and role-aware access for administrators and
+    pharmacists.
+    \item Added pharmacy-scoped access checks for operational records.
+    \item Added a health endpoint and startup database compatibility handling.
+\end{itemize}
+
+\subsection{Medicine Catalogue and Inventory}
+\begin{itemize}[leftmargin=*]
+    \item Implemented medicine catalogue creation, editing, search, and
+    category/reference data.
+    \item Implemented batch-level stock records with batch number, quantity,
+    expiry date, pricing, and disposal information.
+    \item Added reorder levels, ideal stock values, low-stock indicators, and
+    inventory summary metrics.
+    \item Added CSV catalogue import with create-or-update behaviour by SKU.
+    \item Added supplier records, purchase orders, and procurement requests.
+\end{itemize}
+
+\subsection{Expiry, FEFO, and Waste Accountability}
+\begin{itemize}
+    \item Implemented expiry risk zones for safe, approaching, critical, and
+    expired stock.
+    \item Implemented near-expiry monitoring and dashboard alerts.
+    \item Implemented FEFO-assisted dispensing so the earliest suitable batch is
+    selected first.
+    \item Prevented expired batches from normal sale or dispensing workflows.
+    \item Implemented supplier return and licensed biomedical-waste disposal
+    records with disposal method, reference, date, and audit information.
+    \item Added company recovery records for eligible expired stock, including
+    recovery values, transferred quantities, and handover references.
+\end{itemize}
+
+\subsection{Sales, Transactions, and Reporting}
+\begin{itemize}
+    \item Implemented medicine dispensing with destination department and
+    internal reference details.
+    \item Implemented itemised sales invoices and sales ledger information.
+    \item Implemented transaction and consumption history.
+    \item Implemented dashboards for stock totals, alerts, daily transactions,
+    sales, purchases, and forecast signals.
+    \item Implemented downloadable CSV and PDF inventory reporting surfaces.
+\end{itemize}
+
+\subsection{Forecasting and Notifications}
+\begin{itemize}
+    \item Added 30-day, 60-day, and 90-day demand forecast views.
+    \item Added XGBoost-based forecasting with a deterministic fallback when
+    insufficient history or model conditions are available.
+    \item Connected forecast and reorder recommendations to reviewable
+    procurement requests.
+    \item Added SMTP configuration and an email delivery check for expiry,
+    stock, and supplier-return notifications.
+\end{itemize}
+
+\subsection{User Interface}
+\begin{itemize}
+    \item Implemented a multi-page React interface for login, dashboard,
+    medicines, batches, expiry and waste, dispensing, sales, finance,
+    imports, suppliers, transactions, departments, reports, and settings.
+    \item Added charts and summary cards for operational visibility.
+    \item Added responsive layouts, data tables, forms, alerts, and
+    confirmation workflows.
+    \item Added barcode/QR-style SKU or batch lookup support for dispensing
+    workflows.
+\end{itemize}
+
+\section{Current Milestone Status}
+\begin{longtable}{p{0.27\textwidth}p{0.17\textwidth}p{0.46\textwidth}}
+\caption{Milestone status as of 30 October 2026}\\
+\toprule
+\textbf{Milestone} & \textbf{Status} & \textbf{Evidence in the implementation} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Milestone} & \textbf{Status} & \textbf{Evidence in the implementation} \\
+\midrule
+\endhead
+Project structure and backend foundation & \statusdone & FastAPI application, SQLAlchemy models, configuration, database session, and startup lifecycle. \\
+Frontend application shell & \statusdone & React/Vite application with routed operational pages and reusable UI patterns. \\
+Authentication and pharmacy workspaces & \statusdone & Login, administrator/pharmacist roles, pharmacy registration, and workspace scoping. \\
+Medicine and batch inventory & \statusdone & CRUD workflows, batch expiry tracking, thresholds, pricing, and stock summaries. \\
+Expiry and waste management & \statusdone & Risk zones, quarantine, supplier returns, recovery records, disposal references, and audit trail. \\
+FEFO dispensing and sales & \statusdone & Earliest-expiry batch selection, dispensing records, invoices, and sales totals. \\
+Procurement and suppliers & \statusdone & Suppliers, purchase orders, procurement requests, approval workflow, and status tracking. \\
+Forecasting and alerts & \statusdone & Forecast views, reorder recommendations, low-stock and near-expiry alerts. \\
+Exports and reporting & \statusdone & CSV/PDF reporting endpoints and reports page. \\
+Automated testing and test evidence & \statusprogress & Functional scenarios still need to be executed systematically and documented. \\
+Production deployment and security hardening & \statusremaining & Final environment configuration, secret review, deployment rehearsal, and access review remain. \\
+Final documentation and presentation & \statusprogress & Technical documentation and final demonstration material remain to be consolidated. \\
+\bottomrule
+\end{longtable}
+
+\section{Work Remaining}
+\subsection{Testing and Validation}
+\begin{enumerate}[leftmargin=*]
+    \item Create a repeatable test dataset covering normal, low-stock,
+    near-expiry, expired, returned, disposed, and recovered batches.
+    \item Test all role permissions and confirm that one pharmacy cannot read or
+    modify another pharmacy's records.
+    \item Test FEFO selection with multiple batches and partial quantities.
+    \item Test sales, purchases, returns, disposal, and recovery calculations
+    against manually verified expected values.
+    \item Test CSV import validation, duplicate SKUs, malformed rows, and
+    empty-file behaviour.
+    \item Test forecast behaviour with sufficient, insufficient, and unusual
+    consumption history.
+    \item Test PDF/CSV report contents and download behaviour.
+    \item Record test cases, screenshots, defects, and fixes for the final
+    evaluation chapter.
+\end{enumerate}
+
+\subsection{Deployment and Security Hardening}
+\begin{enumerate}[leftmargin=*]
+    \item Configure and validate PostgreSQL deployment using environment
+    variables rather than local demonstration defaults.
+    \item Review authentication, password handling, CORS, SMTP, and API error
+    responses before demonstration or deployment.
+    \item Confirm that real credentials, mailbox passwords, and private
+    configuration values are not included in the repository.
+    \item Add database backup and restore instructions and perform one
+    recovery rehearsal.
+    \item Run a final build and deployment rehearsal on a clean environment.
+\end{enumerate}
+
+\subsection{Usability and Documentation}
+\begin{enumerate}[leftmargin=*]
+    \item Conduct a short usability review with representative pharmacy
+    workflows and refine labels, validation messages, and empty states.
+    \item Add screenshots and verified workflow results to the final report.
+    \item Complete API, installation, user-operation, and administrator
+    documentation.
+    \item Prepare the final presentation, demonstration script, and individual
+    contribution summary.
+\end{enumerate}
+
+\section{Proposed Completion Plan}
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{>{\bfseries}p{0.23\textwidth}p{0.18\textwidth}X}
+\toprule
+\textbf{Phase} & \textbf{Target} & \textbf{Activities} \\
+\midrule
+Validation & Week 1 & Execute functional, role, data-integrity, import, report, and forecast tests. \\
+Hardening & Week 2 & Fix defects, review configuration and secrets, validate PostgreSQL deployment, and complete backup rehearsal. \\
+Usability & Week 3 & Refine interface based on walkthroughs, capture screenshots, and finalize user instructions. \\
+Submission & Week 4 & Complete final report, presentation, contribution summary, and final demonstration rehearsal. \\
+\bottomrule
+\end{tabularx}
+\caption{Suggested remaining-work schedule}
+\end{table}
+
+\section{Conclusion}
+The project has progressed from the initial interface and conceptual roadmap to
+a connected pharmacy-management application with the main operational
+workflows implemented. The strongest completed areas are batch-level
+inventory, expiry accountability, FEFO dispensing, multi-pharmacy isolation,
+procurement, sales, forecasting, and reporting.
+
+The project is not yet considered final until the remaining validation,
+deployment, security review, usability review, and documentation activities have
+been completed. The next immediate priority is to run and document an
+end-to-end test cycle using controlled synthetic data, followed by deployment
+hardening and preparation of the final demonstration.
+
+\section*{Declaration of Data Scope}
+\addcontentsline{toc}{section}{Declaration of Data Scope}
+The demonstration catalogue, suppliers, prices, stock quantities, and
+consumption history are synthetic project data. They are intended for software
+demonstration and testing only and do not represent real patient records,
+licensed stock, or a guarantee of regulatory approval. Any operational
+deployment must use verified local medicine, supplier, licensing, and disposal
+information.
+
+\vfill
+\begin{center}
+\rule{0.8\textwidth}{0.4pt}\\[0.2cm]
+\small Prepared for mentor review\\
+\small \projecttitle\ -- 30 October 2026
+\end{center}
+
+\end{document}
