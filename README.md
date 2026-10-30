@@ -47,6 +47,31 @@
     - CSV and PDF inventory reports
     - CSV template columns: `name,sku,category,unit,reorder_level,ideal_stock,description`
 
+## Optional business modules
+
+The project also exposes additive business modules under `/api/v1/extensions`.
+They do not replace the existing inventory, FEFO, expiry, sales, or procurement
+routes:
+
+- `/tax-profile` stores optional GSTIN, legal-name, state-code, and default GST
+  rate settings.
+- `/accounting-summary` provides sales, payment, debit, credit, GST, and
+  outstanding summaries.
+- `/customers` and `/prescriptions` provide synthetic customer/patient and
+  prescription records for demonstration.
+- `/payments` records payment method, provider, invoice reference, and status
+  without requiring a payment gateway.
+- `/exchange/listings` provides an additive B2B pharmacy-exchange listing
+  foundation.
+- `/integrations` reports the available Tally/GST export, WhatsApp adapter, and
+  payment-gateway adapter integration points. These adapters are intentionally
+  not connected to external services yet.
+
+These modules are currently intended for synthetic data and staged testing.
+Production use requires privacy review, verified GST rules, gateway credentials,
+and integration-specific authentication before real patient, customer, or
+payment information is stored.
+
 ## Trusted medicine-data sources and scope
 
 The system never claims that synthetic stock, supplier contact details, prices, or batches are real. Every pharmacy must enter and verify its own supplier, batch, price, licence, and purchase data. New pharmacy workspaces receive an **empty, generic WHO essential-medicines starter catalogue** only; staff must add their actual batches before dispensing or selling.

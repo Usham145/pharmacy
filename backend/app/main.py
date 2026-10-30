@@ -6,6 +6,7 @@ from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.api.routes import router
+from app.api.extensions import router as extensions_router
 from app.core.config import get_settings
 from app.db.base import Base
 from app.db.session import engine, get_db
@@ -24,6 +25,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix=settings.api_prefix)
+app.include_router(extensions_router, prefix=settings.api_prefix)
 
 
 @app.on_event("startup")

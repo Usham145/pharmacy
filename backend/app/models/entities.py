@@ -134,27 +134,6 @@ class SaleInvoice(Base):
     pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
 
 
-class ExpiryCompanyTransfer(Base):
-    __tablename__ = "expiry_company_transfers"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    quote_number: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
-    invoice_number: Mapped[str | None] = mapped_column(String(32), unique=True, nullable=True)
-    batch_id: Mapped[int] = mapped_column(ForeignKey("batch_stocks.id"), nullable=False, index=True)
-    medicine_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    batch_number: Mapped[str] = mapped_column(String(64), nullable=False)
-    company_name: Mapped[str] = mapped_column(String(128), nullable=False)
-    company_contact: Mapped[str] = mapped_column(String(128), nullable=False)
-    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
-    recovery_unit_price: Mapped[float] = mapped_column(Float, nullable=False)
-    total_amount: Mapped[float] = mapped_column(Float, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), default="quoted", nullable=False)
-    quoted_on: Mapped[date] = mapped_column(Date, nullable=False)
-    transferred_on: Mapped[date | None] = mapped_column(Date, nullable=True)
-    transfer_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
-
-
 class InventoryTransaction(Base):
     __tablename__ = "inventory_transactions"
 
@@ -279,4 +258,99 @@ class WastePickup(Base):
     certificate_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PharmacyTaxProfile(Base):
+    """Optional tax configuration kept separate from existing billing flows."""
+    __tablename__ = "pharmacy_tax_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), unique=True, nullable=False, index=True)
+    gstin: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    legal_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    default_gst_rate: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    state_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
+
+class Customer(Base):
+    __tablename__ = "customers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    phone: Mapped[str | None] = mapped_column(String(24), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    loyalty_points: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    credit_limit: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Prescription(Base):
+    __tablename__ = "prescriptions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    customer_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True, index=True)
+    patient_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    doctor_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prescription_number: Mapped[str] = mapped_column(String(64), nullable=False)
+    medicine_summary: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    prescribed_on: Mapped[date] = mapped_column(Date, nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class PaymentRecord(Base):
+    __tablename__ = "payment_records"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    reference: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    invoice_number: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    amount: Mapped[float] = mapped_column(Float, nullable=False)
+    method: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="recorded", nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class AccountingEntry(Base):
+    __tablename__ = "accounting_entries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    entry_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    reference: Mapped[str] = mapped_column(String(64), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    debit: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    credit: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    gst_amount: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class ExchangeListing(Base):
+    __tablename__ = "exchange_listings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    medicine_id: Mapped[int] = mapped_column(ForeignKey("medicines.id"), nullable=False, index=True)
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False)
+    asking_price: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    listing_type: Mapped[str] = mapped_column(String(32), default="offer", nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="open", nullable=False)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class IntegrationEvent(Base):
+    __tablename__ = "integration_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
+    integration: Mapped[str] = mapped_column(String(32), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), default="queued", nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 
@@ -23,9 +23,9 @@ type User = {
 };
 
 type UserFormState = { id?: number; username: string; full_name: string; email: string; role: string; password: string };
-type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
+type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'business' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
 
-const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
+const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'business', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
 const translations = {
     en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', expiry: 'Expiry & waste', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
     hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', expiry: 'समाप्ति व अपशिष्ट', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
@@ -145,13 +145,18 @@ type ExpiryBatch = Batch & { daysLeft: number; expiryBand: ExpiryBand; expiryLab
 type ExpirySupplier = { supplier: string; totalBatches: number; expiredBatches: number; nearExpiryBatches: number; totalQuantity: number; nextExpiry: string | null };
 type DepartmentInventory = { id: number; department: string; medicine_id: number; medicine_name: string; batch_number: string; quantity: number; updated_at: string };
 type FinancialSummary = { sales_total: number; sales_count: number; purchases_total: number; purchase_count: number };
+type TaxProfile = { id: number; pharmacy_id: number; gstin?: string | null; legal_name?: string | null; default_gst_rate: number; state_code?: string | null };
+type AccountingSummary = { sales_total: number; payments_received: number; debit_total: number; credit_total: number; gst_total: number; outstanding: number };
+type Customer = { id: number; pharmacy_id: number; name: string; phone?: string | null; email?: string | null; loyalty_points: number; credit_limit: number; active: boolean };
+type Prescription = { id: number; pharmacy_id: number; patient_name: string; doctor_name?: string | null; prescription_number: string; medicine_summary: string; prescribed_on: string; customer_id?: number | null; notes?: string | null; status: string };
+type PaymentRecord = { id: number; pharmacy_id: number; reference: string; amount: number; method: string; invoice_number?: string | null; provider?: string | null; status: string };
+type ExchangeListing = { id: number; pharmacy_id: number; medicine_id: number; quantity: number; asking_price: number; listing_type: string; notes?: string | null; status: string };
 
 type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null };
 type Equipment = { id: number; name: string; asset_number: string; equipment_type: string; waste_category: string; quantity: number; unit: string; expiry_date?: string | null; condition: string; waste_status: string; location: string };
 type WastePickup = { id: number; pickup_number: string; vendor_name: string; vendor_contact: string; scheduled_date: string; waste_category: string; item_summary: string; status: string; manifest_number?: string | null; certificate_reference?: string | null; notes?: string | null };
 
 type SmtpStatus = { configured: boolean; host: string; port: number; use_tls: boolean; username_configured: boolean; from_email: string };
-type ExpiryCompanyTransfer = { id: number; quote_number: string; invoice_number?: string | null; batch_id: number; medicine_name: string; batch_number: string; company_name: string; company_contact: string; quantity: number; recovery_unit_price: number; total_amount: number; status: string; quoted_on: string; transferred_on?: string | null; transfer_reference?: string | null };
 
 type AlertItem = {
     id: number;
@@ -330,7 +335,6 @@ function getExpirySnapshot(expiryDate: string, disposalStatus?: string) {
 
 export default function App() {
     const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
-    const [sessionChecked, setSessionChecked] = useState(() => !localStorage.getItem(TOKEN_KEY));
     const [currentUser, setCurrentUser] = useState<User | null>(() => {
         const stored = localStorage.getItem(USER_KEY);
         return stored ? (JSON.parse(stored) as User) : null;
@@ -340,8 +344,6 @@ export default function App() {
     const [authUsername, setAuthUsername] = useState('admin');
     const [authPassword, setAuthPassword] = useState('admin123');
     const [selectedMedicineId, setSelectedMedicineId] = useState<number | null>(null);
-    const [inspectedSupplierName, setInspectedSupplierName] = useState<string | null>(null);
-    const [medicineSearch, setMedicineSearch] = useState('');
     const [activeTab, setActiveTab] = useState<Page>(() => {
         const page = window.location.pathname.replace(/^\//, '') as Page;
         return pageNames.includes(page) ? page : 'welcome';
@@ -356,9 +358,11 @@ export default function App() {
     const [departments, setDepartments] = useState<Department[]>([]);
     const [locations, setLocations] = useState<Location[]>([]);
     const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
-    const [sales, setSales] = useState<SaleInvoice[]>([]);
     const [transactions, setTransactions] = useState<Transaction[]>([]);
+    const [transactionSearch, setTransactionSearch] = useState('');
+    const [transactionType, setTransactionType] = useState('All');
     const [departmentInventory, setDepartmentInventory] = useState<DepartmentInventory[]>([]);
+    const [selectedDepartment, setSelectedDepartment] = useState('Emergency');
     const [categories, setCategories] = useState<Category[]>([]);
     const [insights, setInsights] = useState<Insight | null>(null);
     const [users, setUsers] = useState<User[]>([]);
@@ -373,6 +377,7 @@ export default function App() {
     const [dispenseQuantity, setDispenseQuantity] = useState('1');
     const [dispenseDepartment, setDispenseDepartment] = useState('Emergency');
     const [dispenseNote, setDispenseNote] = useState('');
+    const [fefoSearch, setFefoSearch] = useState('');
     const [saleLookup, setSaleLookup] = useState('');
     const [saleQuantity, setSaleQuantity] = useState('1');
     const [salePrice, setSalePrice] = useState('0');
@@ -382,15 +387,23 @@ export default function App() {
     const [buyerPhone, setBuyerPhone] = useState('');
     const [latestBill, setLatestBill] = useState<SaleInvoice | null>(null);
     const [financials, setFinancials] = useState<FinancialSummary | null>(null);
+    const [taxProfile, setTaxProfile] = useState<TaxProfile | null>(null);
+    const [accountingSummary, setAccountingSummary] = useState<AccountingSummary | null>(null);
+    const [customers, setCustomers] = useState<Customer[]>([]);
+    const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+    const [payments, setPayments] = useState<PaymentRecord[]>([]);
+    const [exchangeListings, setExchangeListings] = useState<ExchangeListing[]>([]);
+    const [businessForm, setBusinessForm] = useState({ gstin: '', legal_name: '', default_gst_rate: '0', state_code: '', customer_name: '', customer_phone: '', patient_name: '', doctor_name: '', prescription_number: '', medicine_summary: '', payment_amount: '', payment_method: 'cash', exchange_medicine_id: '', exchange_quantity: '1' });
     const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
     const [equipment, setEquipment] = useState<Equipment[]>([]);
     const [wastePickups, setWastePickups] = useState<WastePickup[]>([]);
-    const workspaceRequestRef = useRef(0);
-    const [expiryTransfers, setExpiryTransfers] = useState<ExpiryCompanyTransfer[]>([]);
-    const [expiryCompanyForm, setExpiryCompanyForm] = useState({ batchId: '', companyName: '', companyContact: '', quantity: '1', recoveryUnitPrice: '' });
     const [equipmentForm, setEquipmentForm] = useState({ name: '', asset_number: '', equipment_type: 'Medical equipment', waste_category: 'General equipment', quantity: '1', unit: 'piece', expiry_date: '', condition: 'usable', location: 'Main Store' });
     const [pickupForm, setPickupForm] = useState({ vendor_name: '', vendor_contact: '', scheduled_date: new Date().toISOString().slice(0, 10), waste_category: 'Expired medicines', item_summary: '', notes: '' });
     const [pharmacyForm, setPharmacyForm] = useState({ name: '', hospital_name: '', licence_number: '', address: '', admin_username: '', admin_full_name: '', admin_email: '', admin_password: '' });
+    const [storageSearch, setStorageSearch] = useState('');
+    const [expirySearch, setExpirySearch] = useState('');
+    const [expiryFilter, setExpiryFilter] = useState('all');
+    const [expiryScanTime, setExpiryScanTime] = useState<string | null>(null);
     const t = translations[language];
 
     function navigate(page: Page) {
@@ -410,65 +423,22 @@ export default function App() {
 
     useEffect(() => {
         if (!token) {
-            setSessionChecked(true);
             return;
         }
-        setSessionChecked(false);
         void restoreSession();
     }, [token]);
 
     useEffect(() => {
-        if (token && sessionChecked && currentUser) {
+        if (token) {
             if (currentUser?.role === 'platform_admin') void loadPharmacies();
             else void loadWorkspace(null);
         }
-    }, [token, sessionChecked, currentUser?.role]);
-
-    useEffect(() => {
-        if (!token || !sessionChecked || !currentUser || currentUser.role === 'platform_admin' || !selectedMedicineId) {
-            return;
-        }
-        void refreshForecast(selectedMedicineId);
-    }, [token, sessionChecked, currentUser?.role, selectedMedicineId]);
+    }, [token, selectedMedicineId, currentUser?.role, activeTab]);
 
     const selectedMedicine = useMemo(
         () => dashboardData?.medicines.find((medicine) => medicine.id === selectedMedicineId) ?? null,
         [dashboardData, selectedMedicineId],
     );
-
-    const medicineRows = useMemo(() => {
-        if (!dashboardData) return [];
-        const query = medicineSearch.trim().toLowerCase();
-        const rows = dashboardData.medicines.map((medicine) => {
-            const batches = dashboardData.batches.filter((batch) => batch.medicine_id === medicine.id);
-            const activeBatches = batches.filter((batch) => batch.disposal_status === 'active' && batch.expiry_date >= new Date().toISOString().slice(0, 10));
-            const nextExpiry = batches.filter((batch) => batch.disposal_status !== 'disposed').sort((left, right) => left.expiry_date.localeCompare(right.expiry_date))[0]?.expiry_date ?? null;
-            return { medicine, stock: activeBatches.reduce((total, batch) => total + batch.quantity, 0), batchCount: batches.length, nextExpiry };
-        });
-        return rows.filter(({ medicine }) => !query || `${medicine.name} ${medicine.sku} ${medicine.category}`.toLowerCase().includes(query)).sort((left, right) => left.medicine.name.localeCompare(right.medicine.name));
-    }, [dashboardData, medicineSearch]);
-
-    const inspectedMedicine = dashboardData?.medicines.find((medicine) => medicine.id === selectedMedicineId) ?? null;
-    const inspectedMedicineBatches = inspectedMedicine ? dashboardData?.batches.filter((batch) => batch.medicine_id === inspectedMedicine.id) ?? [] : [];
-    const inspectedSupplier = suppliers.find((supplier) => supplier.company_name === inspectedSupplierName) ?? null;
-    const inspectedSupplierBatches = inspectedSupplier ? (dashboardData?.batches.filter((batch) => batch.supplier === inspectedSupplier.company_name) ?? []) : [];
-
-    function inspectMedicine(medicineId: number) {
-        const medicine = dashboardData?.medicines.find((item) => item.id === medicineId);
-        if (!medicine) return;
-        setSelectedMedicineId(medicineId);
-        setInspectedSupplierName(null);
-        startMedicineEdit(medicine);
-        setStatus(`${medicine.name} details loaded into the medicine form`);
-    }
-
-    function inspectSupplier(supplierName: string) {
-        setInspectedSupplierName(supplierName);
-        navigate('batches');
-        setEditingBatchId(null);
-        setBatchForm((previous) => ({ ...previous, supplier: supplierName }));
-        setStatus(`${supplierName} loaded into the batch supplier field`);
-    }
 
     const forecastChartData = useMemo(
         () => ({
@@ -490,16 +460,11 @@ export default function App() {
     async function restoreSession() {
         try {
             const data = await apiRequest<AuthMeResponse>('/auth/me', token, { method: 'GET' });
-            if (!['admin', 'pharmacist', 'platform_admin'].includes(data.user.role)) {
-                throw new Error('This account role is no longer supported. Sign in with an admin or pharmacist account.');
-            }
             setCurrentUser(data.user);
             localStorage.setItem(USER_KEY, JSON.stringify(data.user));
             setStatus(`Signed in as ${data.user.full_name}`);
         } catch {
             clearSession();
-        } finally {
-            setSessionChecked(true);
         }
     }
 
@@ -507,11 +472,10 @@ export default function App() {
         if (!token) {
             return;
         }
-        const requestId = ++workspaceRequestRef.current;
         setLoading(true);
         try {
             const role = roleOverride ?? currentUser?.role;
-            const [summary, medicines, batches, alerts, suppliersData, departmentsData, locationsData, purchaseOrdersData, salesData, transactionsData, departmentInventoryData, categoriesData, insightsData, financialSummary, equipmentData, pickupsData, smtpStatusData, expiryTransfersData] = await Promise.all([
+            const [summary, medicines, batches, alerts, suppliersData, departmentsData, locationsData, purchaseOrdersData, transactionsData, departmentInventoryData, categoriesData, insightsData, financialSummary, equipmentData, pickupsData] = await Promise.all([
                 apiRequest<Summary>('/dashboard/summary', token),
                 apiRequest<Medicine[]>('/medicines', token),
                 apiRequest<Batch[]>('/batches', token),
@@ -520,7 +484,6 @@ export default function App() {
                 apiRequest<Department[]>('/departments', token),
                 apiRequest<Location[]>('/locations', token),
                 apiRequest<PurchaseOrder[]>('/purchase-orders', token),
-                apiRequest<SaleInvoice[]>('/sales', token),
                 apiRequest<Transaction[]>('/transactions', token),
                 apiRequest<DepartmentInventory[]>('/department-inventory', token),
                 apiRequest<Category[]>('/categories', token),
@@ -528,24 +491,36 @@ export default function App() {
                 apiRequest<FinancialSummary>('/reports/financial-summary', token),
                 apiRequest<Equipment[]>('/waste/equipment', token),
                 apiRequest<WastePickup[]>('/waste/pickups', token),
-                apiRequest<SmtpStatus>('/communications/smtp-status', token),
-                apiRequest<ExpiryCompanyTransfer[]>('/expiry-company-transfers', token),
             ]);
             const forecast = medicines[0] ? await apiRequest<Forecast>(`/forecasts/${medicineId ?? medicines[0].id}`, token) : null;
-            if (requestId !== workspaceRequestRef.current) return;
             setDashboardData({ summary, medicines, batches, alerts, forecast, suppliers: suppliersData, departments: departmentsData, locations: locationsData, purchaseOrders: purchaseOrdersData, transactions: transactionsData, categories: categoriesData, insights: insightsData });
             setSuppliers(suppliersData);
             setDepartments(departmentsData);
             setLocations(locationsData);
             setPurchaseOrders(purchaseOrdersData);
-            setSales(salesData);
             setTransactions(transactionsData);
             setDepartmentInventory(departmentInventoryData);
             setFinancials(financialSummary);
+            try {
+                const [tax, accounting, customerData, prescriptionData, paymentData, exchangeData] = await Promise.all([
+                    apiRequest<TaxProfile | null>('/extensions/tax-profile', token),
+                    apiRequest<AccountingSummary>('/extensions/accounting-summary', token),
+                    apiRequest<Customer[]>('/extensions/customers', token),
+                    apiRequest<Prescription[]>('/extensions/prescriptions', token),
+                    apiRequest<PaymentRecord[]>('/extensions/payments', token),
+                    apiRequest<ExchangeListing[]>('/extensions/exchange/listings', token),
+                ]);
+                setTaxProfile(tax);
+                setAccountingSummary(accounting);
+                setCustomers(customerData);
+                setPrescriptions(prescriptionData);
+                setPayments(paymentData);
+                setExchangeListings(exchangeData);
+            } catch (error) {
+                setStatus(error instanceof Error ? `Business modules: ${error.message}` : 'Business modules failed to load');
+            }
             setEquipment(equipmentData);
             setWastePickups(pickupsData);
-            setSmtpStatus(smtpStatusData);
-            setExpiryTransfers(expiryTransfersData);
             setCategories(categoriesData);
             setInsights(insightsData);
             if (currentUser?.role === 'admin') {
@@ -560,21 +535,64 @@ export default function App() {
             if (!editingBatchId && medicines[0]) {
                 setBatchForm((previous) => (previous.id ? previous : { ...previous, medicine_id: String(medicines[0].id) }));
             }
+            if (medicineId && medicines.find((medicine) => medicine.id === medicineId)) {
+                const refreshedForecast = await apiRequest<Forecast>(`/forecasts/${medicineId}`, token);
+                setDashboardData((previous) => previous ? { ...previous, forecast: refreshedForecast } : previous);
+            }
             setStatus('Data refreshed');
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Failed to load workspace');
         } finally {
-            if (requestId === workspaceRequestRef.current) setLoading(false);
+            setLoading(false);
         }
     }
 
-    async function refreshForecast(medicineId: number) {
+    async function saveTaxProfile() {
         if (!token) return;
         try {
-            const forecast = await apiRequest<Forecast>(`/forecasts/${medicineId}`, token);
-            setDashboardData((previous) => previous ? { ...previous, forecast } : previous);
+            const profile = await apiRequest<TaxProfile>('/extensions/tax-profile', token, { method: 'PUT', body: JSON.stringify({ gstin: businessForm.gstin || null, legal_name: businessForm.legal_name || null, default_gst_rate: Number(businessForm.default_gst_rate) || 0, state_code: businessForm.state_code || null }) });
+            setTaxProfile(profile);
+            setStatus('GST profile saved');
         } catch (error) {
-            setStatus(error instanceof Error ? error.message : 'Forecast refresh failed');
+            setStatus(error instanceof Error ? error.message : 'GST profile save failed');
+        }
+    }
+
+    async function createCustomer() {
+        if (!token || !businessForm.customer_name.trim()) return;
+        try {
+            const customer = await apiRequest<Customer>('/extensions/customers', token, { method: 'POST', body: JSON.stringify({ name: businessForm.customer_name, phone: businessForm.customer_phone || null }) });
+            setCustomers((previous) => [customer, ...previous]);
+            setBusinessForm((previous) => ({ ...previous, customer_name: '', customer_phone: '' }));
+            setStatus('Customer saved');
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Customer save failed');
+        }
+    }
+
+    async function createPrescription() {
+        if (!token || !businessForm.patient_name.trim() || !businessForm.prescription_number.trim()) return;
+        try {
+            const prescription = await apiRequest<Prescription>('/extensions/prescriptions', token, { method: 'POST', body: JSON.stringify({ patient_name: businessForm.patient_name, doctor_name: businessForm.doctor_name || null, prescription_number: businessForm.prescription_number, medicine_summary: businessForm.medicine_summary, prescribed_on: new Date().toISOString().slice(0, 10) }) });
+            setPrescriptions((previous) => [prescription, ...previous]);
+            setBusinessForm((previous) => ({ ...previous, patient_name: '', doctor_name: '', prescription_number: '', medicine_summary: '' }));
+            setStatus('Prescription saved');
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Prescription save failed');
+        }
+    }
+
+    async function recordPayment() {
+        if (!token || Number(businessForm.payment_amount) <= 0) return;
+        try {
+            const payment = await apiRequest<PaymentRecord>('/extensions/payments', token, { method: 'POST', body: JSON.stringify({ amount: Number(businessForm.payment_amount), method: businessForm.payment_method }) });
+            setPayments((previous) => [payment, ...previous]);
+            setBusinessForm((previous) => ({ ...previous, payment_amount: '' }));
+            const summary = await apiRequest<AccountingSummary>('/extensions/accounting-summary', token);
+            setAccountingSummary(summary);
+            setStatus('Payment recorded');
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Payment recording failed');
         }
     }
 
@@ -585,11 +603,7 @@ export default function App() {
                 method: 'POST',
                 body: JSON.stringify({ username: authUsername, password: authPassword }),
             });
-            if (!['admin', 'pharmacist', 'platform_admin'].includes(data.user.role)) {
-                throw new Error('This account role is no longer supported. Sign in with an admin or pharmacist account.');
-            }
             setToken(data.access_token);
-            setSessionChecked(true);
             setCurrentUser(data.user);
             localStorage.setItem(TOKEN_KEY, data.access_token);
             localStorage.setItem(USER_KEY, JSON.stringify(data.user));
@@ -679,35 +693,15 @@ export default function App() {
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Supplier reminder email failed'); }
     }
 
-    async function testSmtp() {
+    async function runExpiryScan() {
         if (!token) return;
-        try {
-            const result = await apiRequest<{ detail: string }>('/communications/test-email', token, { method: 'POST', body: JSON.stringify({ recipient: smtpRecipient || null, subject: smtpSubject, body: smtpBody }) });
-            setStatus(result.detail);
-        } catch (error) { setStatus(error instanceof Error ? error.message : 'SMTP test failed'); }
+        setExpiryScanTime(new Date().toISOString());
+        await loadWorkspace(null);
+        setStatus('Expiry scan completed; risk totals and alerts were refreshed');
     }
 
-    async function createExpiryCompanyQuote() {
-        if (!token || !expiryCompanyForm.batchId) { setStatus('Select an expired batch for the company quote'); return; }
-        try {
-            const quote = await apiRequest<ExpiryCompanyTransfer>(`/batches/${expiryCompanyForm.batchId}/expiry-company-quote`, token, { method: 'POST', body: JSON.stringify({ company_name: expiryCompanyForm.companyName, company_contact: expiryCompanyForm.companyContact, quantity: Number(expiryCompanyForm.quantity), recovery_unit_price: expiryCompanyForm.recoveryUnitPrice ? Number(expiryCompanyForm.recoveryUnitPrice) : null }) });
-            setExpiryTransfers((previous) => [quote, ...previous]);
-            setExpiryCompanyForm({ batchId: '', companyName: '', companyContact: '', quantity: '1', recoveryUnitPrice: '' });
-            setStatus(`${quote.quote_number} created for ${quote.company_name}`);
-            await loadWorkspace(selectedMedicineId);
-        } catch (error) { setStatus(error instanceof Error ? error.message : 'Expiry company quote failed'); }
-    }
-
-    async function confirmExpiryCompanyTransfer(transfer: ExpiryCompanyTransfer) {
-        if (!token) return;
-        const transferReference = window.prompt('Enter the company receipt / recovery certificate reference:');
-        if (!transferReference) return;
-        try {
-            const updated = await apiRequest<ExpiryCompanyTransfer>(`/expiry-company-transfers/${transfer.id}/confirm`, token, { method: 'POST', body: JSON.stringify({ transfer_reference: transferReference }) });
-            setExpiryTransfers((previous) => previous.map((item) => item.id === updated.id ? updated : item));
-            setStatus(`${updated.invoice_number} recorded for ${updated.company_name}`);
-            await loadWorkspace(selectedMedicineId);
-        } catch (error) { setStatus(error instanceof Error ? error.message : 'Expiry company transfer failed'); }
+    function focusWasteSection(sectionId: string) {
+        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
     async function saveEquipment() {
@@ -794,7 +788,6 @@ export default function App() {
 
     function clearSession() {
         setToken(null);
-        setSessionChecked(true);
         setCurrentUser(null);
         localStorage.removeItem(TOKEN_KEY);
         localStorage.removeItem(USER_KEY);
@@ -806,7 +799,7 @@ export default function App() {
         if (!token) {
             return;
         }
-        const payload = {
+            const payload = {
             name: medicineForm.name,
             sku: medicineForm.sku,
             category: medicineForm.category,
@@ -857,7 +850,7 @@ export default function App() {
             supplier: batchForm.supplier,
             quantity: Number(batchForm.quantity),
             unit_price: Number(batchForm.unit_price),
-            recovery_unit_price: Number(batchForm.recovery_unit_price),
+                recovery_unit_price: Number(batchForm.recovery_unit_price),
             received_on: batchForm.received_on,
             expiry_date: batchForm.expiry_date,
             location: batchForm.location,
@@ -916,7 +909,6 @@ export default function App() {
             supplier: batch.supplier,
             quantity: String(batch.quantity),
             unit_price: String(batch.unit_price),
-            recovery_unit_price: String(batch.recovery_unit_price),
             received_on: batch.received_on,
             expiry_date: batch.expiry_date,
             location: batch.location,
@@ -924,9 +916,37 @@ export default function App() {
     }
 
     const availableSaleBatches = (dashboardData?.batches ?? [])
-        .filter((batch) => batch.quantity > 0 && batch.disposal_status === 'active' && new Date(batch.expiry_date) >= new Date(new Date().toISOString().slice(0, 10)))
+        .filter((batch) => batch.quantity > 0 && batch.disposal_status === 'active' && new Date(`${batch.expiry_date}T00:00:00`) >= new Date(new Date().toDateString()))
         .slice()
         .sort((left, right) => new Date(left.expiry_date).getTime() - new Date(right.expiry_date).getTime());
+    const transactionTypes = ['All', ...Array.from(new Set(transactions.map((transaction) => transaction.transaction_type)))];
+    const filteredTransactions = transactions.filter((transaction) => {
+        const query = transactionSearch.trim().toLowerCase();
+        const matchesType = transactionType === 'All' || transaction.transaction_type === transactionType;
+        const matchesSearch = !query || `${transaction.medicine_name ?? ''} ${transaction.reference} ${transaction.department ?? ''} ${transaction.note ?? ''}`.toLowerCase().includes(query);
+        return matchesType && matchesSearch;
+    });
+    const departmentSummaries = departments.map((department) => {
+        const stock = departmentInventory.filter((item) => item.department === department.name);
+        return {
+            ...department,
+            stock,
+            medicineCount: new Set(stock.map((item) => item.medicine_id)).size,
+            totalQuantity: stock.reduce((total, item) => total + item.quantity, 0),
+        };
+    });
+    const selectedDepartmentSummary = departmentSummaries.find((department) => department.name === selectedDepartment) ?? departmentSummaries[0];
+    const expiryRows = (dashboardData?.batches ?? []).map((batch) => ({ batch, info: getExpirySnapshot(batch.expiry_date, batch.disposal_status) }));
+    const expiryFilteredRows = expiryRows.filter(({ batch, info }) => {
+        const query = expirySearch.trim().toLowerCase();
+        const matchesSearch = !query || `${batch.medicine_name ?? ''} ${batch.batch_number} ${batch.supplier} ${batch.location}`.toLowerCase().includes(query);
+        const matchesFilter = expiryFilter === 'all' || info.expiryBand === expiryFilter;
+        return matchesSearch && matchesFilter;
+    });
+    const expiryAtRisk = expiryRows.filter(({ info }) => info.daysLeft <= 90 && info.daysLeft >= 0);
+    const expiredRows = expiryRows.filter(({ info }) => info.daysLeft < 0);
+    const expiryRiskQuantity = expiryAtRisk.reduce((total, { batch }) => total + batch.quantity, 0);
+    const expiryRiskValue = expiryAtRisk.reduce((total, { batch }) => total + batch.quantity * batch.unit_price, 0);
 
     const medicineById = new Map((dashboardData?.medicines ?? []).map((medicine) => [medicine.id, medicine]));
     const saleBatchIndex = new Map(availableSaleBatches.map((batch) => [batch.id, batch]));
@@ -952,7 +972,7 @@ export default function App() {
                 medicineName: entry.medicineName,
                 medicineSku: entry.medicineSku,
                 batchCount: orderedBatches.length,
-                availableQuantity: nextBatch.quantity,
+                availableQuantity: orderedBatches.reduce((total, batch) => total + batch.quantity, 0),
                 nextBatch,
             };
         })
@@ -965,9 +985,18 @@ export default function App() {
         })
         .sort((left, right) => left.medicineName.localeCompare(right.medicineName));
 
+    const fefoQueue = (dashboardData?.batches ?? [])
+        .filter((batch) => batch.quantity > 0 && batch.disposal_status === 'active' && new Date(`${batch.expiry_date}T00:00:00`) >= new Date(new Date().toDateString()))
+        .slice()
+        .sort((left, right) => new Date(left.expiry_date).getTime() - new Date(right.expiry_date).getTime());
+    const filteredFefoQueue = fefoQueue.filter((batch) => {
+        const query = fefoSearch.trim().toLowerCase();
+        return !query || `${batch.medicine_name ?? ''} ${batch.batch_number} ${batch.medicine_id} ${batch.expiry_date}`.toLowerCase().includes(query);
+    });
+
     function selectSaleBatch(batch: Batch) {
         setSelectedSaleBatchId(batch.id);
-        setSaleLookup(batch.batch_number);
+        setSaleLookup(medicineById.get(batch.medicine_id)?.sku ?? batch.batch_number);
         setSalePrice(String(batch.unit_price));
         setStatus(`${batch.medicine_name} selected from batch ${batch.batch_number}`);
     }
@@ -977,12 +1006,16 @@ export default function App() {
         if (!medicineEntry) {
             return;
         }
-        selectSaleBatch(medicineEntry.nextBatch);
+        setSelectedSaleBatchId(medicineEntry.nextBatch.id);
+        setSaleLookup(medicineEntry.medicineSku || medicineEntry.nextBatch.batch_number);
+        setSalePrice(String(medicineEntry.nextBatch.unit_price));
+        setStatus(`${medicineEntry.medicineName} selected; FEFO will consume earliest valid batches`);
     }
 
     const canEdit = currentUser?.role === 'admin' || currentUser?.role === 'pharmacist';
     const visiblePages: { page: Page; label: string; icon: string; roles: string[] }[] = [
         { page: 'finance', label: 'Sales & purchases', icon: '₹', roles: ['admin', 'pharmacist'] },
+        { page: 'business', label: 'GST, patients & CRM', icon: '✦', roles: ['admin', 'pharmacist'] },
         { page: 'expiry', label: t.expiry, icon: '!', roles: ['admin', 'pharmacist'] },
         { page: 'welcome', label: t.workspace, icon: '⌂', roles: ['admin', 'pharmacist'] },
         { page: 'dashboard', label: t.dashboard, icon: '◫', roles: ['admin', 'pharmacist'] },
@@ -1045,21 +1078,8 @@ export default function App() {
         );
     }
 
-    if (currentUser.role !== 'platform_admin' && (!sessionChecked || !dashboardData)) {
-        return (
-            <div className="shell workspace-loading-shell">
-                <main className="content workspace-loading">
-                    <div className="loading-mark">+</div>
-                    <div className="eyebrow">ArogyaMitra workspace</div>
-                    <h2>Loading the latest pharmacy data</h2>
-                    <p>Checking your session, stock, expiry records, and operational totals.</p>
-                </main>
-            </div>
-        );
-    }
-
     if (currentUser.role === 'platform_admin') {
-        return <div className="shell"><aside className="hero-panel sticky-panel"><div className="brand"><span className="brand-mark">+</span><span>ArogyaMitra<small>HEALTH SYSTEMS</small></span></div><div className="badge">PLATFORM ADMIN</div><h1>Hospital & Pharmacy Setup</h1><p>Create each organisation, appoint its first pharmacy administrator, then let that team manage its own stock.</p><button className="logout-button" onClick={clearSession}>Sign out</button></aside><main className="content"><header className="topbar"><div><div className="eyebrow">Central administration</div><h2>Add a hospital or pharmacy</h2></div><div className="status-chip">{status}</div></header><section className="workspace-grid"><div className="panel"><div className="section-title">Step 1 · Organisation</div><FormGrid><Field label="Pharmacy name" value={pharmacyForm.name} onChange={(value) => setPharmacyForm(p => ({ ...p, name: value }))} /><Field label="Hospital name" value={pharmacyForm.hospital_name} onChange={(value) => setPharmacyForm(p => ({ ...p, hospital_name: value }))} /><Field label="Licence number" value={pharmacyForm.licence_number} onChange={(value) => setPharmacyForm(p => ({ ...p, licence_number: value }))} /><Field label="Address" value={pharmacyForm.address} onChange={(value) => setPharmacyForm(p => ({ ...p, address: value }))} /></FormGrid><div className="section-title">Step 2 · First pharmacy administrator</div><FormGrid><Field label="Admin full name" value={pharmacyForm.admin_full_name} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_full_name: value }))} /><Field label="Admin username" value={pharmacyForm.admin_username} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_username: value }))} /><Field label="Admin email" value={pharmacyForm.admin_email} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_email: value }))} type="email" /><Field label="Temporary password" value={pharmacyForm.admin_password} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_password: value }))} type="password" /></FormGrid><button className="primary inline" onClick={createPharmacy} disabled={loading}>{loading ? 'Creating workspace…' : 'Create pharmacy workspace'}</button></div><div className="panel"><div className="section-title">Registered organisations</div><table className="data-table"><thead><tr><th>Pharmacy</th><th>Hospital</th><th>Licence</th></tr></thead><tbody>{pharmacies.map(pharmacy => <tr key={pharmacy.id}><td>{pharmacy.name}</td><td>{pharmacy.hospital_name || '-'}</td><td>{pharmacy.licence_number || '-'}</td></tr>)}</tbody></table></div></section></main></div>;
+            return <div className="shell"><aside className="hero-panel sticky-panel"><div className="brand"><span className="brand-mark">+</span><span>ArogyaMitra<small>HEALTH SYSTEMS</small></span></div><div className="badge">PLATFORM ADMIN</div><h1>Hospital & Pharmacy Setup</h1><p>Create each organisation, appoint its first pharmacy administrator, then let that team manage its own stock.</p><button className="logout-button" onClick={clearSession}>Sign out</button></aside><main className="content"><header className="topbar"><div><div className="eyebrow">Central administration</div><h2>Add a hospital or pharmacy</h2></div><div className="status-chip">{status}</div></header><section className="workspace-grid"><div className="panel"><div className="section-title">Step 1 · Organisation</div><FormGrid><Field label="Pharmacy name" value={pharmacyForm.name} onChange={(value) => setPharmacyForm(p => ({ ...p, name: value }))} /><Field label="Hospital name" value={pharmacyForm.hospital_name} onChange={(value) => setPharmacyForm(p => ({ ...p, hospital_name: value }))} /><Field label="Licence number" value={pharmacyForm.licence_number} onChange={(value) => setPharmacyForm(p => ({ ...p, licence_number: value }))} /><Field label="Address" value={pharmacyForm.address} onChange={(value) => setPharmacyForm(p => ({ ...p, address: value }))} /></FormGrid><div className="section-title">Step 2 · First pharmacy administrator</div><FormGrid><Field label="Admin full name" value={pharmacyForm.admin_full_name} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_full_name: value }))} /><Field label="Admin username" value={pharmacyForm.admin_username} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_username: value }))} /><Field label="Admin email" value={pharmacyForm.admin_email} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_email: value }))} type="email" /><Field label="Temporary password" value={pharmacyForm.admin_password} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_password: value }))} type="password" /></FormGrid><button className="primary inline" onClick={createPharmacy} disabled={loading}>{loading ? 'Creating workspace…' : 'Create pharmacy workspace'}</button></div><div className="panel"><div className="section-title">Registered organisations</div><table className="data-table"><thead><tr><th>Pharmacy</th><th>Hospital</th><th>Licence</th></tr></thead><tbody>{pharmacies.map(pharmacy => <tr key={pharmacy.id}><td>{pharmacy.name}</td><td>{pharmacy.hospital_name || '-'}</td><td>{pharmacy.licence_number || '-'}</td></tr>)}</tbody></table></div></section></main></div>;
     }
 
     return (
@@ -1313,30 +1333,25 @@ export default function App() {
                             <div className="panel-header">
                                 <div>
                                     <div className="section-title">Catalogue</div>
-                                    <h3>Medicines and live stock</h3>
+                                    <h3>Medicines and stock policy</h3>
                                 </div>
                             </div>
-                            <div className="catalogue-toolbar"><input value={medicineSearch} onChange={(event) => setMedicineSearch(event.target.value)} placeholder="Search medicine, SKU, or category..." /><span>{medicineRows.length} of {dashboardData.medicines.length} medicines</span></div>
                             <table className="data-table">
                                 <thead>
                                     <tr>
                                         <th>Name</th>
                                         <th>SKU</th>
                                         <th>Category</th>
-                                        <th>Usable stock</th>
-                                        <th>Next expiry</th>
                                         <th>Reorder</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {medicineRows.map(({ medicine, stock, batchCount, nextExpiry }) => (
+                                    {dashboardData.medicines.map((medicine) => (
                                         <tr key={medicine.id}>
-                                            <td><button className="inline-link" onClick={() => inspectMedicine(medicine.id)}><strong>{medicine.name}</strong></button><small className="muted"> · {batchCount} batch{batchCount === 1 ? '' : 'es'}</small></td>
+                                            <td>{medicine.name}</td>
                                             <td>{medicine.sku}</td>
                                             <td>{medicine.category}</td>
-                                            <td className={stock <= medicine.reorder_level ? 'stock-low' : 'stock-healthy'}>{stock.toLocaleString()} {medicine.unit}</td>
-                                            <td>{nextExpiry ?? 'No batch'}</td>
                                             <td>{medicine.reorder_level}</td>
                                             <td>
                                                 <div className="table-actions">
@@ -1407,16 +1422,17 @@ export default function App() {
                                 <tbody>
                                     {dashboardData.batches.map((batch) => (
                                         <tr key={batch.id}>
-                                            <td><button className="inline-link" onClick={() => startBatchEdit(batch)}>{batch.medicine_name ?? batch.medicine_id}</button></td>
+                                            <td>{batch.medicine_name ?? batch.medicine_id}</td>
                                             <td>{batch.batch_number}</td>
                                             <td>{batch.quantity}</td>
                                             <td>{batch.expiry_date}{batch.disposal_status === 'collection_requested' && <small className="muted"> · pickup requested</small>}{batch.disposal_status === 'disposed' && <small className="muted"> · collected</small>}</td>
                                             <td>
                                                 <div className="table-actions">
                                                     <button className="ghost" onClick={() => startBatchEdit(batch)} disabled={!canEdit}>Edit</button>
-                                                    {batch.expiry_date < new Date().toISOString().slice(0, 10) && batch.disposal_status !== 'disposed' && batch.disposal_status !== 'collection_requested' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Request collection</button>}
-                                                    {batch.expiry_date < new Date().toISOString().slice(0, 10) && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Email supplier</button>}
+                                                    {new Date(batch.expiry_date) < new Date() && batch.disposal_status !== 'disposed' && batch.disposal_status !== 'collection_requested' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Request collection</button>}
+                                                    {new Date(batch.expiry_date) < new Date() && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Email supplier</button>}
                                                     {batch.disposal_status === 'collection_requested' && <button className="ghost" onClick={() => confirmCollection(batch)} disabled={!canEdit}>Confirm collection</button>}
+                                                    {new Date(batch.expiry_date) < new Date() && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Email original supplier</button>}
                                                     <button className="ghost danger" onClick={() => deleteBatch(batch.id)} disabled={!canEdit}>Delete</button>
                                                 </div>
                                             </td>
@@ -1430,18 +1446,38 @@ export default function App() {
 
                 {activeTab === 'expiry' && dashboardData && (
                     <section className="workspace-grid single-column">
+                        <div className="expiry-top-actions">
+                            <div className="panel expiry-scan-panel">
+                                <div className="expiry-scan-icon">SCAN</div>
+                                <div className="expiry-scan-copy"><div className="section-title">Daily expiry scan</div><h3>Check every batch before the next shift</h3><p className="muted">Refresh expiry risk, identify expired stock, and review batches that need FEFO, supplier return, quarantine, or licensed collection.</p>{expiryScanTime && <small className="muted">Last scan: {new Date(expiryScanTime).toLocaleString()}</small>}</div>
+                                <button className="primary inline" onClick={runExpiryScan} disabled={loading}>{loading ? 'Scanning...' : 'Run expiry scan'}</button>
+                            </div>
+                            <div className="panel waste-quick-card">
+                                <div className="waste-quick-icon equipment">EQ</div>
+                                <div><div className="section-title">Equipment waste</div><strong>Register non-medicine waste</strong><small>{equipment.length} record{equipment.length !== 1 ? 's' : ''} · equipment, sharps, and chemical waste</small></div>
+                                <button className="secondary inline" onClick={() => focusWasteSection('equipment-waste-register')} disabled={!canEdit}>Open register</button>
+                            </div>
+                            <div className="panel waste-quick-card">
+                                <div className="waste-quick-icon pickup">BIO</div>
+                                <div><div className="section-title">Licensed collection</div><strong>Schedule certified pickup</strong><small>{wastePickups.length} pickup{wastePickups.length !== 1 ? 's' : ''} · manifest and certificate tracking</small></div>
+                                <button className="secondary inline" onClick={() => focusWasteSection('licensed-waste-collection')} disabled={!canEdit}>Schedule pickup</button>
+                            </div>
+                        </div>
                         <div className="panel">
-                            <div className="panel-header"><div><div className="section-title">Expiry & waste control</div><h3>Prevent expiry loss and ensure safe collection</h3><p className="muted">Green: over 6 months. Yellow: 3-6 months, prioritise FEFO or ask supplier for credit. Red: under 3 months, review for return. Black: expired, quarantine and arrange signed collection.</p></div><span className={smtpStatus?.configured ? 'status-label' : 'status-label status-warning'}>{smtpStatus?.configured ? 'SMTP ready' : 'SMTP not configured'}</span></div>
-                            <table className="data-table"><thead><tr><th>Zone</th><th>Medicine</th><th>Batch</th><th>Supplier</th><th>Quantity</th><th>Expiry</th><th>Recovery value</th><th>Action</th></tr></thead><tbody>{dashboardData.batches.map((batch) => { const info = getExpirySnapshot(batch.expiry_date, batch.disposal_status); return <tr key={batch.id}><td>{info.expiryBand.toUpperCase()}</td><td>{batch.medicine_name ?? batch.medicine_id}</td><td>{batch.batch_number}</td><td>{batch.supplier}</td><td>{batch.quantity}</td><td>{batch.expiry_date}<small className="muted"> · {info.expiryLabel}</small></td><td>₹{(batch.quantity * batch.recovery_unit_price).toLocaleString()}<small className="muted"> · ₹{batch.recovery_unit_price}/unit</small></td><td><div className="table-actions">{(info.expiryBand === 'yellow' || info.expiryBand === 'red') && <button className="ghost" onClick={() => emailSupplierForExpiry(batch)} disabled={!canEdit}>Email supplier</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Email return request</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'collection_requested' && batch.disposal_status !== 'recovery_quoted' && batch.disposal_status !== 'disposed' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Request collection</button>}{batch.disposal_status === 'collection_requested' && <button className="ghost" onClick={() => confirmCollection(batch)} disabled={!canEdit}>Confirm collection</button>}{batch.disposal_status === 'recovery_quoted' && <span>Company quote open</span>}{batch.disposal_status === 'disposed' && <span>Collection recorded</span>}</div></td></tr>; })}</tbody></table>
+                            <div className="panel-header"><div><div className="section-title">Expiry & waste control</div><h3>Expiry command centre</h3><p className="muted">Prioritise batches expiring within 90 days, quarantine expired stock, request supplier returns, and track the value at risk.</p></div><span className="recommendation">{expiryFilteredRows.length} batches shown</span></div>
+                            <div className="expiry-metric-grid">
+                                <article><span>Within 30 days</span><strong>{expiryRows.filter(({ info }) => info.daysLeft >= 0 && info.daysLeft <= 30).length}</strong><small>urgent review</small></article>
+                                <article><span>Within 60 days</span><strong>{expiryRows.filter(({ info }) => info.daysLeft >= 0 && info.daysLeft <= 60).length}</strong><small>plan action</small></article>
+                                <article><span>Within 90 days</span><strong>{expiryAtRisk.length}</strong><small>{expiryRiskQuantity} units at risk</small></article>
+                                <article><span>Expired</span><strong>{expiredRows.length}</strong><small>quarantine required</small></article>
+                                <article><span>Value at risk</span><strong>₹{expiryRiskValue.toLocaleString()}</strong><small>purchase value estimate</small></article>
+                            </div>
+                            <div className="table-toolbar"><input type="search" value={expirySearch} onChange={(event) => setExpirySearch(event.target.value)} placeholder="Search medicine, batch, supplier, or location..." /><select value={expiryFilter} onChange={(event) => setExpiryFilter(event.target.value)} aria-label="Filter expiry risk"><option value="all">All risk bands</option><option value="red">Under 3 months</option><option value="yellow">3–6 months</option><option value="black">Expired / disposed</option><option value="green">Healthy</option></select>{(expirySearch || expiryFilter !== 'all') && <button className="secondary inline" onClick={() => { setExpirySearch(''); setExpiryFilter('all'); }}>Clear</button>}</div>
+                            <table className="data-table"><thead><tr><th>Risk</th><th>Medicine / batch</th><th>Supplier</th><th>Location</th><th>Qty</th><th>Expiry</th><th>Value at risk</th><th>Action</th></tr></thead><tbody>{expiryFilteredRows.map(({ batch, info }) => <tr key={batch.id}><td><span className={`expiry-pill ${info.expiryBand}`}>{info.expiryBand === 'black' ? 'EXPIRED' : info.expiryLabel}</span></td><td><strong>{batch.medicine_name ?? batch.medicine_id}</strong><small className="muted">{batch.batch_number}</small></td><td>{batch.supplier}</td><td>{batch.location}</td><td>{batch.quantity}</td><td>{batch.expiry_date}<small className="muted"> · {info.daysLeft} days</small></td><td>₹{(batch.quantity * batch.unit_price).toLocaleString()}<small className="muted"> recovery ₹{(batch.quantity * batch.recovery_unit_price).toLocaleString()}</small></td><td><div className="table-actions">{(info.expiryBand === 'yellow' || info.expiryBand === 'red') && <button className="ghost" onClick={() => emailSupplierForExpiry(batch)} disabled={!canEdit}>Notify supplier</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Return request</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'collection_requested' && batch.disposal_status !== 'disposed' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Quarantine / collect</button>}{batch.disposal_status === 'collection_requested' && <button className="ghost" onClick={() => confirmCollection(batch)} disabled={!canEdit}>Confirm collection</button>}{batch.disposal_status === 'disposed' && <span>Disposed</span>}</div></td></tr>)}{!expiryFilteredRows.length && <tr><td colSpan={8}>No batches match this expiry filter.</td></tr>}</tbody></table>
                         </div>
-                        <div className="expiry-control-grid">
-                            <div className="panel expiry-quote-panel"><div className="panel-header"><div><div className="section-title">Company recovery</div><h3>Quote expired stock to a licensed company</h3><p className="muted">This is separate from normal sales. The batch stays non-saleable until the transfer is confirmed with a company receipt or recovery certificate.</p></div></div><FormGrid><Field label="Expired batch" value={expiryCompanyForm.batchId} onChange={(value) => { const batch = dashboardData.batches.find((item) => String(item.id) === value); setExpiryCompanyForm((previous) => ({ ...previous, batchId: value, recoveryUnitPrice: batch ? String(batch.recovery_unit_price) : previous.recoveryUnitPrice })); }} disabled={!canEdit} select options={dashboardData.batches.filter((batch) => new Date(batch.expiry_date) < new Date() && batch.quantity > 0 && batch.disposal_status === 'active').map((batch) => ({ label: `${batch.medicine_name} · ${batch.batch_number} · ${batch.quantity} units`, value: String(batch.id) }))} /><Field label="Company name" value={expiryCompanyForm.companyName} onChange={(value) => setExpiryCompanyForm((previous) => ({ ...previous, companyName: value }))} disabled={!canEdit} /><Field label="Company contact / licence" value={expiryCompanyForm.companyContact} onChange={(value) => setExpiryCompanyForm((previous) => ({ ...previous, companyContact: value }))} disabled={!canEdit} /><Field label="Quantity" value={expiryCompanyForm.quantity} onChange={(value) => setExpiryCompanyForm((previous) => ({ ...previous, quantity: value }))} disabled={!canEdit} type="number" /><Field label="Recovery price per unit (₹)" value={expiryCompanyForm.recoveryUnitPrice} onChange={(value) => setExpiryCompanyForm((previous) => ({ ...previous, recoveryUnitPrice: value }))} disabled={!canEdit} type="number" /></FormGrid><div className="action-row"><button className="primary inline" onClick={createExpiryCompanyQuote} disabled={!canEdit}>Generate company quote</button></div></div>
-                            <div className="panel communication-panel"><div className="panel-header"><div><div className="section-title">Communication centre</div><h3>SMTP delivery check</h3><p className="muted">Supplier reminders and expiry return requests use the configured sender. Test delivery before relying on notifications.</p></div></div><div className="smtp-status-line"><strong>{smtpStatus?.configured ? 'Configured' : 'Not configured'}</strong><span>{smtpStatus?.host || 'Set SMTP_HOST in .env'}</span><span>{smtpStatus?.from_email || 'No sender address'}</span></div><FormGrid><Field label="Test recipient" value={smtpRecipient} onChange={setSmtpRecipient} disabled={!canEdit} type="email" /><Field label="Subject" value={smtpSubject} onChange={setSmtpSubject} disabled={!canEdit} /><Field label="Message" value={smtpBody} onChange={setSmtpBody} disabled={!canEdit} textarea /></FormGrid><div className="action-row"><button className="secondary inline" onClick={testSmtp} disabled={!canEdit}>Send test email</button></div></div>
-                        </div>
-                        <div className="panel"><div className="panel-header"><div><div className="section-title">Expiry document register</div><h3>Quotes, recovery bills, and transfer references</h3><p className="muted">Every company recovery quote becomes a recorded recovery invoice only after the handover reference is confirmed.</p></div></div><table className="data-table"><thead><tr><th>Quote</th><th>Batch</th><th>Company</th><th>Qty</th><th>Total</th><th>Status</th><th>Document / action</th></tr></thead><tbody>{expiryTransfers.length ? expiryTransfers.map((transfer) => <tr key={transfer.id}><td><strong>{transfer.quote_number}</strong><small className="muted"> · {transfer.quoted_on}</small></td><td>{transfer.medicine_name}<small className="muted"> · {transfer.batch_number}</small></td><td>{transfer.company_name}<small className="muted"> · {transfer.company_contact}</small></td><td>{transfer.quantity}</td><td>₹{transfer.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td><span className={transfer.status === 'transferred' ? 'status-label' : 'status-label status-warning'}>{transfer.status}</span></td><td>{transfer.status === 'quoted' ? <button className="ghost" onClick={() => confirmExpiryCompanyTransfer(transfer)} disabled={!canEdit}>Confirm handover</button> : <><strong>{transfer.invoice_number}</strong><small className="muted"> · {transfer.transfer_reference}</small></>}</td></tr>) : <tr><td colSpan={7} className="empty-table">No expiry-company quotes yet.</td></tr>}</tbody></table></div>
-                        <div className="workspace-grid">
-                            <div className="panel">
-                                <div className="panel-header"><div><div className="section-title">Equipment waste register</div><h3>Track devices and non-drug items</h3><p className="muted">Register expired, damaged, sharps, infectious, cytotoxic, or general equipment separately from medicine batches.</p></div></div>
+                        <div className="waste-workflow-grid">
+                            <div className="panel waste-workflow-panel" id="equipment-waste-register">
+                                <div className="panel-header"><div><div className="section-title">01 · Equipment waste register</div><h3>Register equipment and non-medicine waste</h3><p className="muted">Use this register for devices, sharps, infectious, cytotoxic, chemical, and general equipment. Medicine batches stay in the expiry table above.</p></div><span className="recommendation">{equipment.length} records</span></div>
                                 <FormGrid>
                                     <Field label="Equipment name" value={equipmentForm.name} onChange={(value) => setEquipmentForm((previous) => ({ ...previous, name: value }))} disabled={!canEdit} />
                                     <Field label="Asset / barcode number" value={equipmentForm.asset_number} onChange={(value) => setEquipmentForm((previous) => ({ ...previous, asset_number: value }))} disabled={!canEdit} />
@@ -1452,11 +1488,11 @@ export default function App() {
                                     <Field label="Condition" value={equipmentForm.condition} onChange={(value) => setEquipmentForm((previous) => ({ ...previous, condition: value }))} disabled={!canEdit} select options={['usable', 'damaged', 'expired', 'contaminated'].map((value) => ({ label: value, value }))} />
                                     <Field label="Quarantine location" value={equipmentForm.location} onChange={(value) => setEquipmentForm((previous) => ({ ...previous, location: value }))} disabled={!canEdit} />
                                 </FormGrid>
-                                <div className="action-row"><button className="primary inline" onClick={saveEquipment} disabled={!canEdit}>Add to waste register</button></div>
+                                <div className="action-row"><button className="primary inline" onClick={saveEquipment} disabled={!canEdit}>Add equipment record</button></div>
                                 <table className="data-table"><thead><tr><th>Item</th><th>Asset</th><th>Category</th><th>Qty</th><th>Condition</th><th>Status</th></tr></thead><tbody>{equipment.map((item) => <tr key={item.id}><td>{item.name}<small className="muted"> · {item.equipment_type}</small></td><td>{item.asset_number}</td><td>{item.waste_category}</td><td>{item.quantity} {item.unit}</td><td>{item.condition}</td><td>{item.waste_status}</td></tr>)}</tbody></table>
                             </div>
-                            <div className="panel">
-                                <div className="panel-header"><div><div className="section-title">Licensed waste collection</div><h3>Pickup, manifest, and destruction proof</h3><p className="muted">Schedule a certified biomedical-waste vendor, then record the manifest and certificate of destruction to close custody.</p></div></div>
+                            <div className="panel waste-workflow-panel" id="licensed-waste-collection">
+                                <div className="panel-header"><div><div className="section-title">02 · Licensed waste collection</div><h3>Schedule certified collection</h3><p className="muted">Choose a licensed biomedical-waste vendor, schedule handover, record the manifest, and finally attach the destruction certificate.</p></div><span className="recommendation">{wastePickups.length} pickups</span></div>
                                 <FormGrid>
                                     <Field label="Licensed vendor" value={pickupForm.vendor_name} onChange={(value) => { const vendor = suppliers.find((item) => item.company_name === value); setPickupForm((previous) => ({ ...previous, vendor_name: value, vendor_contact: vendor ? `${vendor.contact_person} · ${vendor.waste_license_number ?? vendor.phone}` : previous.vendor_contact })); }} disabled={!canEdit} select options={suppliers.filter((supplier) => supplier.waste_vendor).map((supplier) => ({ label: `${supplier.company_name} (${supplier.waste_license_number})`, value: supplier.company_name }))} />
                                     <Field label="Vendor contact / licence" value={pickupForm.vendor_contact} onChange={(value) => setPickupForm((previous) => ({ ...previous, vendor_contact: value }))} disabled={!canEdit} />
@@ -1465,7 +1501,7 @@ export default function App() {
                                     <Field label="Items / quantities" value={pickupForm.item_summary} onChange={(value) => setPickupForm((previous) => ({ ...previous, item_summary: value }))} disabled={!canEdit} />
                                     <Field label="Notes" value={pickupForm.notes} onChange={(value) => setPickupForm((previous) => ({ ...previous, notes: value }))} disabled={!canEdit} />
                                 </FormGrid>
-                                <div className="action-row"><button className="primary inline" onClick={scheduleWastePickup} disabled={!canEdit}>Schedule pickup</button></div>
+                                <div className="action-row"><button className="primary inline" onClick={scheduleWastePickup} disabled={!canEdit}>Schedule licensed pickup</button></div>
                                 <table className="data-table"><thead><tr><th>Pickup</th><th>Vendor / stream</th><th>Date</th><th>Status</th><th>Compliance</th></tr></thead><tbody>{wastePickups.map((pickup) => <tr key={pickup.id}><td>{pickup.pickup_number}<small className="muted"> · {pickup.item_summary}</small></td><td>{pickup.vendor_name}<small className="muted"> · {pickup.waste_category}</small></td><td>{pickup.scheduled_date}</td><td>{pickup.status}</td><td><div className="table-actions">{pickup.status === 'scheduled' && <button className="ghost" onClick={() => updateWastePickup(pickup, 'collected')} disabled={!canEdit}>Record manifest</button>}{pickup.status === 'collected' && <button className="ghost" onClick={() => updateWastePickup(pickup, 'destroyed')} disabled={!canEdit}>Add destruction certificate</button>}{pickup.manifest_number && <small>{pickup.manifest_number}</small>}{pickup.certificate_reference && <small>{pickup.certificate_reference}</small>}</div></td></tr>)}</tbody></table>
                             </div>
                         </div>
@@ -1485,8 +1521,9 @@ export default function App() {
                             </FormGrid>
                             <div className="action-row"><button className="primary inline" onClick={dispenseMedicine} disabled={!canEdit}>Dispense FEFO stock</button></div>
                         </div>
-                        <div className="panel"><div className="panel-header"><div><div className="section-title">FEFO queue</div><h3>Next eligible batches</h3></div></div>
-                            <table className="data-table"><thead><tr><th>Medicine</th><th>Batch / QR value</th><th>Expiry</th><th>Available</th></tr></thead><tbody>{dashboardData.batches.filter((batch) => batch.quantity > 0 && batch.disposal_status === 'active' && batch.expiry_date >= new Date().toISOString().slice(0, 10)).slice(0, 12).map((batch) => <tr key={batch.id}><td>{batch.medicine_name}</td><td>{batch.batch_number}</td><td>{batch.expiry_date}</td><td>{batch.quantity}</td></tr>)}</tbody></table>
+                        <div className="panel"><div className="panel-header"><div><div className="section-title">FEFO queue</div><h3>Next eligible batches</h3><p className="muted">Batches are ordered by earliest valid expiry. Search by medicine, SKU, batch, or expiry date before choosing a batch.</p></div><span className="recommendation">{filteredFefoQueue.length} of {fefoQueue.length} eligible</span></div>
+                            <div className="table-toolbar"><input type="search" value={fefoSearch} onChange={(event) => setFefoSearch(event.target.value)} placeholder="Search medicine, SKU, batch, or expiry..." />{fefoSearch && <button className="secondary inline" onClick={() => setFefoSearch('')}>Clear</button>}</div>
+                            <table className="data-table"><thead><tr><th>Priority</th><th>Medicine</th><th>Batch / QR value</th><th>Expiry</th><th>Available</th><th>Action</th></tr></thead><tbody>{filteredFefoQueue.slice(0, 30).map((batch, index) => <tr key={batch.id}><td><strong>#{index + 1}</strong></td><td>{batch.medicine_name}</td><td>{batch.batch_number}</td><td>{batch.expiry_date}</td><td>{batch.quantity}</td><td><button className="ghost" onClick={() => { setDispenseLookup(batch.batch_number); setDispenseQuantity('1'); }}>Use batch</button></td></tr>)}{filteredFefoQueue.length === 0 && <tr><td colSpan={6}>No eligible batch matches this search.</td></tr>}</tbody></table>
                         </div>
                     </section>
                 )}
@@ -1494,8 +1531,8 @@ export default function App() {
                 {activeTab === 'sales' && dashboardData && (
                     <section className="workspace-grid sales-workspace">
                         <div className="panel sales-panel">
-                            <div className="panel-header"><div><div className="section-title">Pharmacy counter</div><h3>Select medicine, then complete the buyer details</h3><p className="muted">Choose an available batch below. Medicine, batch number and approved price are filled automatically.</p></div><span className="recommendation">FEFO protected</span></div>
-                            <div className="sale-search"><input value={saleSearch} onChange={(event) => setSaleSearch(event.target.value)} placeholder="Search available medicine, SKU, or batch number..." /><span>{availableSaleBatches.length} batches available</span></div>
+                            <div className="panel-header"><div><div className="section-title">Pharmacy counter</div><h3>Select medicine, then complete the buyer details</h3><p className="muted">Choose an available batch below. Medicine, batch number and approved price are filled automatically. The displayed catalogue is seeded demo stock; replace it with your real inventory through Import CSV.</p></div><span className="recommendation">FEFO protected</span></div>
+                            <div className="sale-search"><input value={saleSearch} onChange={(event) => setSaleSearch(event.target.value)} placeholder="Search available medicine, SKU, or batch number..." /><span>{saleMedicineCards.length} medicines · {availableSaleBatches.length} batches</span></div>
                             <div className="sale-selected-banner">
                                 {selectedSaleBatch ? (
                                     <>
@@ -1513,29 +1550,32 @@ export default function App() {
                                     <span>Select a medicine below to prefill batch number and price.</span>
                                 )}
                             </div>
+                            <div className="quick-bill-controls">
+                                <FormGrid>
+                                <Field label="Medicine" value={selectedSaleBatch?.medicine_name ?? ''} onChange={() => {}} disabled />
+                                <Field label="Selected SKU or batch number" value={saleLookup} onChange={() => {}} disabled />
+                                <Field label="Unit price (₹)" value={salePrice} onChange={() => {}} type="number" disabled />
+                                <Field label="Quantity" value={saleQuantity} onChange={setSaleQuantity} type="number" />
+                                <Field label="Buyer name" value={buyerName} onChange={setBuyerName} />
+                                <Field label="Buyer phone (optional)" value={buyerPhone} onChange={setBuyerPhone} />
+                                </FormGrid>
+                                <div className="action-row"><button className="primary inline" onClick={sellMedicine}>Complete sale & generate bill</button><button className="secondary inline" onClick={() => { setLatestBill(null); setSaleSearch(''); setSaleLookup(''); setSelectedSaleBatchId(null); setSalePrice('0'); }}>Clear bill</button></div>
+                            </div>
                             <div className="sale-catalogue">
-                                {saleMedicineCards.slice(0, 16).map((entry) => (
+                                {saleMedicineCards.map((entry) => (
                                     <button key={entry.medicineId} className={selectedSaleBatch?.medicine_id === entry.medicineId ? 'sale-medicine selected' : 'sale-medicine'} onClick={() => selectSaleMedicine(entry.medicineId)}>
                                         <span>
                                             <strong>{entry.medicineName}</strong>
                                             <small>{entry.batchCount} batch{entry.batchCount > 1 ? 'es' : ''} available · Next expiry {entry.nextBatch.expiry_date}</small>
                                         </span>
                                         <span>
-                                            <b>{entry.availableQuantity} available in FEFO batch</b>
+                                            <b>{entry.availableQuantity} total in stock</b>
                                             <em>FEFO batch {entry.nextBatch.batch_number}</em>
                                         </span>
                                     </button>
                                 ))}
+                                {saleMedicineCards.length === 0 && <div className="empty-state">No saleable medicine is currently available. Stock must have quantity above zero, be active, and not be expired.</div>}
                             </div>
-                            <FormGrid>
-                                <Field label="Medicine" value={selectedSaleBatch?.medicine_name ?? ''} onChange={() => { }} disabled />
-                                <Field label="Selected batch number" value={saleLookup} onChange={() => { }} disabled />
-                                <Field label="Unit price (₹)" value={salePrice} onChange={() => { }} type="number" disabled />
-                                <Field label="Quantity" value={saleQuantity} onChange={setSaleQuantity} type="number" />
-                                <Field label="Buyer name" value={buyerName} onChange={setBuyerName} />
-                                <Field label="Buyer phone (optional)" value={buyerPhone} onChange={setBuyerPhone} />
-                            </FormGrid>
-                            <div className="action-row"><button className="primary inline" onClick={sellMedicine}>Complete sale & generate bill</button><button className="secondary inline" onClick={() => { setLatestBill(null); setSaleSearch(''); setSaleLookup(''); setSelectedSaleBatchId(null); setSalePrice('0'); }}>Clear bill</button></div>
                         </div>
                         <aside className="panel bill-preview">
                             <div className="panel-header"><div><div className="section-title">Buyer bill</div><h3>{latestBill ? latestBill.invoice_number : 'Ready to generate'}</h3></div>{latestBill && <button className="ghost" onClick={() => window.print()}>Print bill</button>}</div>
@@ -1581,7 +1621,7 @@ export default function App() {
                                 <article className={`procurement-card ${request.status}`} key={request.id}>
                                     <div className="procurement-top"><div><span className="request-number">{request.request_number}</span><h3>{request.item_lines.map((line) => line.medicine_name).join(', ')}</h3><p>{request.trigger_summary}</p></div><span className={`procurement-status ${request.status}`}>{request.status === 'sent' ? 'Sent to supplier' : 'Awaiting approval'}</span></div>
                                     <div className="procurement-line"><span>{request.item_lines[0]?.quantity} units · {request.item_lines[0]?.reason}</span><strong>₹{request.estimated_total.toLocaleString()}</strong></div>
-                                    <div className="procurement-footer"><span>Supplier: <button className="inline-link" onClick={() => inspectSupplier(request.supplier_name)}>{request.supplier_name}</button> · {request.supplier_email}</span>{request.status === 'sent' ? <span className="invoice-badge">{request.invoice_number} generated</span> : <button className="primary inline" onClick={() => sendProcurement(request.id)}>Approve & send order</button>}</div>
+                                    <div className="procurement-footer"><span>Supplier: <strong>{request.supplier_name}</strong> · {request.supplier_email}</span>{request.status === 'sent' ? <span className="invoice-badge">{request.invoice_number} generated</span> : <button className="primary inline" onClick={() => sendProcurement(request.id)}>Approve & send order</button>}</div>
                                 </article>
                             ))}
                         </div>
@@ -1610,7 +1650,7 @@ export default function App() {
                                 <tbody>
                                     {suppliers.map((supplier) => (
                                         <tr key={supplier.id}>
-                                            <td><button className="inline-link" onClick={() => inspectSupplier(supplier.company_name)}>{supplier.company_name}</button></td>
+                                            <td>{supplier.company_name}</td>
                                             <td>{supplier.contact_person}</td>
                                             <td>{supplier.phone}</td>
                                             <td>{supplier.gst_number}</td>
@@ -1629,65 +1669,157 @@ export default function App() {
                             <div className="panel-header">
                                 <div>
                                     <div className="section-title">Transactions</div>
-                                    <h3>Purchase and issue movements</h3>
+                                    <h3>Inventory activity centre</h3>
+                                    <p className="muted">A clear history of stock entering, leaving, and moving between pharmacy and departments.</p>
                                 </div>
+                                <span className="recommendation">{filteredTransactions.length} shown</span>
                             </div>
-                            <table className="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Medicine</th>
-                                        <th>Type</th>
-                                        <th>Qty</th>
-                                        <th>Reference</th>
-                                        <th>Department</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {transactions.slice(0, 40).map((transaction) => (
-                                        <tr key={transaction.id}>
-                                            <td>{transaction.transaction_date}</td>
-                                            <td><button className="inline-link" onClick={() => inspectMedicine(transaction.medicine_id)}>{transaction.medicine_name ?? transaction.medicine_id}</button></td>
-                                            <td>{transaction.transaction_type}</td>
-                                            <td>{transaction.quantity}</td>
-                                            <td>{transaction.reference}</td>
-                                            <td>{transaction.department ?? '-'}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                            <div className="transaction-overview">
+                                <article><span className="transaction-icon inbound">IN</span><div><strong>{transactions.filter((transaction) => ['Purchase', 'Receipt', 'Procurement'].includes(transaction.transaction_type)).length}</strong><small>Stock received</small></div></article>
+                                <article><span className="transaction-icon outbound">OUT</span><div><strong>{transactions.filter((transaction) => ['Sale', 'Dispense'].includes(transaction.transaction_type)).length}</strong><small>Stock issued</small></div></article>
+                                <article><span className="transaction-icon total">ALL</span><div><strong>{transactions.length}</strong><small>Total movements</small></div></article>
+                            </div>
+                            <div className="table-toolbar">
+                                <input type="search" value={transactionSearch} onChange={(event) => setTransactionSearch(event.target.value)} placeholder="Search medicine, reference, department..." />
+                                <select value={transactionType} onChange={(event) => setTransactionType(event.target.value)} aria-label="Filter transaction type">{transactionTypes.map((type) => <option key={type}>{type}</option>)}</select>
+                                {(transactionSearch || transactionType !== 'All') && <button className="secondary inline" onClick={() => { setTransactionSearch(''); setTransactionType('All'); }}>Clear</button>}
+                            </div>
+                            <div className="transaction-feed">
+                            {filteredTransactions.slice(0, 50).map((transaction) => (
+                                <article className="transaction-entry" key={transaction.id}>
+                                    <span className={`transaction-type-mark ${transaction.transaction_type.toLowerCase()}`}>{transaction.transaction_type === 'Dispense' ? '→' : transaction.transaction_type === 'Sale' ? '₹' : '＋'}</span>
+                                    <div className="transaction-entry-main"><div><strong>{transaction.medicine_name ?? `Medicine #${transaction.medicine_id}`}</strong><small>{transaction.transaction_type} · {transaction.transaction_date}</small></div><b>{transaction.transaction_type === 'Sale' || transaction.transaction_type === 'Dispense' ? '-' : '+'}{transaction.quantity} units</b></div>
+                                    <div className="transaction-entry-meta"><span>{transaction.department ? `${transaction.department} · ` : ''}{transaction.reference}</span><small>{transaction.note ?? 'Recorded inventory movement'}</small></div>
+                                </article>
+                            ))}
+                            </div>
+                            {!filteredTransactions.length && <div className="empty-state">No transactions match the current filters.</div>}
                         </div>
                     </section>
                 )}
 
-                {activeTab === 'finance' && dashboardData && <section className="finance-page">
-                    <div className="finance-intro"><div><div className="section-title">Cash movement</div><h3>Sales and purchases</h3><p className="muted">A clear view of money received at the counter and money committed to suppliers.</p></div><div className="finance-updated">Showing the latest {Math.max(sales.length, purchaseOrders.length)} records</div></div>
-                    <section className="finance-summary">
-                        <StatCard label="Sales received" value={`₹${(financials?.sales_total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} tone="teal" />
-                        <StatCard label="Purchase committed" value={`₹${(financials?.purchases_total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} tone="gold" />
-                        <StatCard label="Bills issued" value={financials?.sales_count ?? 0} tone="blue" />
-                        <StatCard label="Orders placed" value={financials?.purchase_count ?? 0} tone="red" />
-                    </section>
-                    <section className="finance-ledgers">
-                        <div className="panel finance-ledger"><div className="panel-header"><div><div className="section-title">Incoming</div><h3>Recent sales</h3></div><strong className="ledger-total">₹{(financials?.sales_total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Bill</th><th>Buyer</th><th>Medicine</th><th>Qty</th><th>Amount</th><th>Sold at</th></tr></thead><tbody>{sales.length ? sales.map(sale => <tr key={sale.invoice_number}><td><strong>{sale.invoice_number}</strong></td><td>{sale.buyer_name}</td><td>{sale.medicine_name}<small className="table-subtext">{sale.sku} · Batch {sale.batch_number}</small></td><td>{sale.quantity}</td><td className="amount-positive">₹{sale.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td>{new Date(sale.sold_at).toLocaleString()}</td></tr>) : <tr><td colSpan={6} className="empty-table">No sales recorded yet.</td></tr>}</tbody></table></div></div>
-                        <div className="panel finance-ledger"><div className="panel-header"><div><div className="section-title">Outgoing</div><h3>Purchase orders</h3></div><strong className="ledger-total purchase">₹{(financials?.purchases_total ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Order</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>{purchaseOrders.length ? purchaseOrders.map(order => <tr key={order.id}><td><strong>{order.po_number}</strong></td><td>{order.supplier_name}</td><td>{order.order_date}</td><td className="amount-purchase">₹{order.total_amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</td><td><span className="status-label">{order.status}</span></td></tr>) : <tr><td colSpan={5} className="empty-table">No purchase orders recorded yet.</td></tr>}</tbody></table></div></div>
-                    </section>
-                </section>}
+                {activeTab === 'finance' && dashboardData && <section className="workspace-grid"><div className="panel"><div className="section-title">Sales record</div><h3>Retail sales of this pharmacy</h3><div className="stats-grid compact-grid"><StatCard label="Sales total" value={`₹${(financials?.sales_total ?? 0).toLocaleString()}`} tone="teal" /><StatCard label="Bills generated" value={financials?.sales_count ?? 0} tone="blue" /></div><p className="muted">Every completed sale has an itemised buyer bill and is included in this total.</p></div><div className="panel"><div className="section-title">Purchase record</div><h3>Supplier orders of this pharmacy</h3><div className="stats-grid compact-grid"><StatCard label="Purchase total" value={`₹${(financials?.purchases_total ?? 0).toLocaleString()}`} tone="gold" /><StatCard label="Purchase orders" value={financials?.purchase_count ?? 0} tone="red" /></div><table className="data-table"><thead><tr><th>Order</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>{purchaseOrders.map(order => <tr key={order.id}><td>{order.po_number}</td><td>{order.supplier_name}</td><td>{order.order_date}</td><td>₹{order.total_amount.toLocaleString()}</td><td>{order.status}</td></tr>)}</tbody></table></div></section>}
 
-                {activeTab === 'departments' && dashboardData && <section className="workspace-grid single-column"><div className="panel"><div className="panel-header"><div><div className="section-title">Department custody</div><h3>Medicine currently held by each department</h3><p className="muted">Every dispense transfers a batch here. If an issued batch is expired, notify its original supplier and return it to the pharmacy quarantine store for collection.</p></div></div><table className="data-table"><thead><tr><th>Department</th><th>Medicine</th><th>Batch</th><th>Quantity</th><th>Last transfer</th><th>Action</th></tr></thead><tbody>{departmentInventory.length ? departmentInventory.map(item => { const batch = dashboardData.batches.find(entry => entry.batch_number === item.batch_number); const expired = batch && new Date(batch.expiry_date) < new Date(); return <tr key={item.id}><td>{item.department}</td><td>{item.medicine_name}</td><td>{item.batch_number}</td><td>{item.quantity}</td><td>{new Date(item.updated_at).toLocaleString()}</td><td>{expired && batch ? <button className="ghost" onClick={() => emailSupplierForReturn(batch)}>Email supplier</button> : 'Active stock'}</td></tr>; }) : <tr><td colSpan={6}>No department issues yet.</td></tr>}</tbody></table></div></section>}
+                {activeTab === 'business' && (
+                    <section className="workspace-grid">
+                        <div className="panel">
+                            <div className="panel-header"><div><div className="section-title">GST and tax</div><h3>Optional pharmacy tax profile</h3></div><span className="recommendation">Additive module</span></div>
+                            <FormGrid>
+                                <Field label="GSTIN" value={businessForm.gstin} onChange={(value) => setBusinessForm((previous) => ({ ...previous, gstin: value }))} />
+                                <Field label="Legal name" value={businessForm.legal_name} onChange={(value) => setBusinessForm((previous) => ({ ...previous, legal_name: value }))} />
+                                <Field label="Default GST rate (%)" value={businessForm.default_gst_rate} onChange={(value) => setBusinessForm((previous) => ({ ...previous, default_gst_rate: value }))} type="number" />
+                                <Field label="State code" value={businessForm.state_code} onChange={(value) => setBusinessForm((previous) => ({ ...previous, state_code: value }))} />
+                            </FormGrid>
+                            <button className="primary inline" onClick={saveTaxProfile}>Save GST profile</button>
+                            {taxProfile?.gstin && <p className="muted">Configured GSTIN: {taxProfile.gstin} · Default rate: {taxProfile.default_gst_rate}%</p>}
+                        </div>
+                        <div className="panel">
+                            <div className="section-title">Accounting summary</div>
+                            <div className="stats-grid compact-grid">
+                                <StatCard label="Payments received" value={`₹${(accountingSummary?.payments_received ?? 0).toLocaleString()}`} tone="teal" />
+                                <StatCard label="Outstanding" value={`₹${(accountingSummary?.outstanding ?? 0).toLocaleString()}`} tone="gold" />
+                                <StatCard label="GST recorded" value={`₹${(accountingSummary?.gst_total ?? 0).toLocaleString()}`} tone="blue" />
+                            </div>
+                            <FormGrid><Field label="Payment amount (₹)" value={businessForm.payment_amount} onChange={(value) => setBusinessForm((previous) => ({ ...previous, payment_amount: value }))} type="number" /><Field label="Payment method" value={businessForm.payment_method} onChange={(value) => setBusinessForm((previous) => ({ ...previous, payment_method: value }))} /></FormGrid>
+                            <button className="primary inline" onClick={recordPayment}>Record payment</button>
+                        </div>
+                        <div className="panel">
+                            <div className="section-title">Customers and loyalty</div>
+                            <h3>Customer register</h3>
+                            <FormGrid><Field label="Customer name" value={businessForm.customer_name} onChange={(value) => setBusinessForm((previous) => ({ ...previous, customer_name: value }))} /><Field label="Phone" value={businessForm.customer_phone} onChange={(value) => setBusinessForm((previous) => ({ ...previous, customer_phone: value }))} /></FormGrid>
+                            <button className="primary inline" onClick={createCustomer}>Add customer</button>
+                            <table className="data-table"><thead><tr><th>Name</th><th>Phone</th><th>Loyalty points</th><th>Credit limit</th></tr></thead><tbody>{customers.map((customer) => <tr key={customer.id}><td>{customer.name}</td><td>{customer.phone ?? '—'}</td><td>{customer.loyalty_points}</td><td>₹{customer.credit_limit.toLocaleString()}</td></tr>)}</tbody></table>
+                        </div>
+                        <div className="panel">
+                            <div className="section-title">Prescriptions</div>
+                            <h3>Patient prescription register</h3>
+                            <FormGrid><Field label="Patient name" value={businessForm.patient_name} onChange={(value) => setBusinessForm((previous) => ({ ...previous, patient_name: value }))} /><Field label="Doctor name" value={businessForm.doctor_name} onChange={(value) => setBusinessForm((previous) => ({ ...previous, doctor_name: value }))} /><Field label="Prescription number" value={businessForm.prescription_number} onChange={(value) => setBusinessForm((previous) => ({ ...previous, prescription_number: value }))} /><Field label="Medicine summary" value={businessForm.medicine_summary} onChange={(value) => setBusinessForm((previous) => ({ ...previous, medicine_summary: value }))} /></FormGrid>
+                            <button className="primary inline" onClick={createPrescription}>Save prescription</button>
+                            <table className="data-table"><thead><tr><th>Patient</th><th>Doctor</th><th>Prescription</th><th>Date</th></tr></thead><tbody>{prescriptions.map((prescription) => <tr key={prescription.id}><td>{prescription.patient_name}</td><td>{prescription.doctor_name ?? '—'}</td><td>{prescription.prescription_number}</td><td>{prescription.prescribed_on}</td></tr>)}</tbody></table>
+                        </div>
+                        <div className="panel">
+                            <div className="section-title">Payments and B2B exchange</div>
+                            <p className="muted">Payment records are stored locally for demonstration. Exchange listings provide the foundation for pharmacy-to-pharmacy stock requests without changing current stock.</p>
+                            <table className="data-table"><thead><tr><th>Payment reference</th><th>Amount</th><th>Method</th><th>Status</th></tr></thead><tbody>{payments.slice(0, 8).map((payment) => <tr key={payment.id}><td>{payment.reference}</td><td>₹{payment.amount.toLocaleString()}</td><td>{payment.method}</td><td>{payment.status}</td></tr>)}</tbody></table>
+                            <p className="muted">{exchangeListings.length} open exchange listing(s) currently available.</p>
+                        </div>
+                    </section>
+                )}
+
+                {activeTab === 'departments' && dashboardData && (
+                    <section className="workspace-grid single-column department-workspace">
+                        <div className="panel">
+                            <div className="panel-header">
+                                <div><div className="section-title">Department stock</div><h3>Choose a department</h3><p className="muted">Open a department to see the medicines and quantities physically ready for use there. Stock is transferred by FEFO, not duplicated.</p></div>
+                                <span className="recommendation">{departmentSummaries.length} departments</span>
+                            </div>
+                            <div className="department-card-grid">
+                                {departmentSummaries.map((department) => (
+                                    <button key={department.name} className={`department-card ${selectedDepartmentSummary?.name === department.name ? 'selected' : ''}`} onClick={() => setSelectedDepartment(department.name)}>
+                                        <span className="department-card-icon">{department.name.slice(0, 1)}</span>
+                                        <span><strong>{department.name}</strong><small>{department.floor} floor · Ext. {department.contact_extension}</small></span>
+                                        <b>{department.medicineCount} medicines</b>
+                                        <em>{department.totalQuantity} units ready</em>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        {selectedDepartmentSummary && (
+                            <div className="panel department-detail-panel">
+                                <div className="panel-header"><div><div className="section-title">Selected department</div><h3>{selectedDepartmentSummary.name}</h3><p className="muted">{selectedDepartmentSummary.floor} floor · Extension {selectedDepartmentSummary.contact_extension}</p></div><span className="recommendation">{selectedDepartmentSummary.totalQuantity} units ready</span></div>
+                                {selectedDepartmentSummary.stock.length ? <div className="department-stock-grid">{selectedDepartmentSummary.stock.map((item) => {
+                                    const batch = dashboardData.batches.find((entry) => entry.batch_number === item.batch_number);
+                                    const expired = batch && new Date(batch.expiry_date) < new Date();
+                                    return <article className="department-stock-card" key={item.id}><div><span className="section-title">READY TO USE</span><h3>{item.medicine_name}</h3><p>Batch {item.batch_number}</p></div><strong>{item.quantity}</strong><small>units · expires {batch?.expiry_date ?? 'not available'}</small>{expired && batch ? <button className="ghost danger" onClick={() => emailSupplierForReturn(batch)}>Email supplier for return</button> : <span className="ready-badge">Available in department</span>}</article>;
+                                })}</div> : <div className="department-empty"><strong>No medicine issued yet</strong><p>Use FEFO Dispensing, select {selectedDepartmentSummary.name}, and issue a batch to add ready-to-use stock here.</p><button className="primary inline" onClick={() => navigate('dispense')}>Open FEFO Dispensing</button></div>}
+                            </div>
+                        )}
+                    </section>
+                )}
 
                 {activeTab === 'reference' && dashboardData && (
                     <section className="workspace-grid single-column">
                         <div className="panel storage-map-panel">
                             <div className="panel-header"><div><div className="section-title">Storage map</div><h3>Where medicines are stored</h3><p className="muted">Use the code on every batch to find its exact drawer, refrigerator, cabinet, or controlled store.</p></div></div>
-                            <div className="storage-section-heading"><span>01</span><div><strong>Medicine location directory</strong><small>Search the medicine name, then follow the highlighted location code.</small></div></div>
+                            <div className="storage-search">
+                                <label className="field">
+                                    <span>Find a medicine</span>
+                                    <input
+                                        type="search"
+                                        value={storageSearch}
+                                        onChange={(event) => setStorageSearch(event.target.value)}
+                                        placeholder="Type medicine name, SKU, batch, or location"
+                                    />
+                                </label>
+                                {storageSearch.trim() && <button className="secondary inline" onClick={() => setStorageSearch('')}>Clear search</button>}
+                            </div>
+                            <div className="storage-section-heading"><span>01</span><div><strong>Storage zones</strong><small>Classified by temperature and handling requirement.</small></div></div>
+                            <div className="storage-zone-grid">
+                                {Array.from(new Set(locations.map((location) => location.temperature_zone))).map((zone) => {
+                                    const zoneLocations = locations.filter((location) => location.temperature_zone === zone);
+                                    const zoneBatches = dashboardData.batches.filter((batch) => zoneLocations.some((location) => location.code === batch.location));
+                                    return <article className="storage-zone-card" key={zone}><span className="storage-icon">{storageIcon(zone, zone)}</span><div><strong>{zone}</strong><small>{zoneLocations.length} station{zoneLocations.length !== 1 ? 's' : ''} · {zoneBatches.length} batch{zoneBatches.length !== 1 ? 'es' : ''}</small><p>{zoneLocations.map((location) => location.code).join(' · ')}</p></div></article>;
+                                })}
+                            </div>
+                            <div className="storage-section-heading"><span>02</span><div><strong>Medicine location directory</strong><small>{storageSearch.trim() ? 'Showing matching medicine locations.' : 'Search the medicine name, then follow the highlighted location code.'}</small></div></div>
                             <div className="medicine-directory-grid">
-                                {dashboardData.batches.map((batch) => {
+                                {dashboardData.batches.filter((batch) => {
+                                    const query = storageSearch.trim().toLowerCase();
+                                    if (!query) return true;
+                                    const location = locations.find((item) => item.code === batch.location);
+                                    return `${batch.medicine_name ?? ''} ${batch.batch_number} ${batch.location} ${location?.name ?? ''}`.toLowerCase().includes(query);
+                                }).map((batch) => {
                                     const location = locations.find((item) => item.code === batch.location);
                                     return <article className="medicine-location-card" key={batch.id}><span className="storage-icon">{storageIcon(location?.temperature_zone ?? '', location?.name ?? '')}</span><div><span className="storage-code">{batch.location}</span><strong>{batch.medicine_name}</strong><small>Batch {batch.batch_number} · {batch.quantity} available</small><p>{location ? `${location.name} — ${location.temperature_zone}` : 'Storage location needs to be assigned'}</p></div></article>;
                                 })}
+                                {dashboardData.batches.filter((batch) => {
+                                    const query = storageSearch.trim().toLowerCase();
+                                    if (!query) return false;
+                                    const location = locations.find((item) => item.code === batch.location);
+                                    return `${batch.medicine_name ?? ''} ${batch.batch_number} ${batch.location} ${location?.name ?? ''}`.toLowerCase().includes(query);
+                                }).length === 0 && <div className="empty-state">No medicine, batch, SKU, or storage location matches “{storageSearch}”.</div>}
                             </div>
-                            <div className="storage-section-heading"><span>02</span><div><strong>Storage station guide</strong><small>Use these stations to identify drawers, refrigerators, and controlled storage.</small></div></div>
+                            <div className="storage-section-heading"><span>03</span><div><strong>Storage station guide</strong><small>Use these stations to identify drawers, refrigerators, and controlled storage.</small></div></div>
                             <div className="storage-grid">
                                 {locations.map((location) => (
                                     <article key={location.id} className="storage-card">

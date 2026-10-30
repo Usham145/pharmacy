@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.entities import BatchStock, ConsumptionRecord, DepartmentInventory, Medicine, Pharmacy, User, MedicalEquipment, WastePickup, ExpiryCompanyTransfer
+from app.models.entities import BatchStock, ConsumptionRecord, DepartmentInventory, Medicine, Pharmacy, User, MedicalEquipment, WastePickup
 from app.schemas import (
     CategoryRead,
     AlertRead,
@@ -51,9 +51,6 @@ from app.schemas import (
     ImportResult,
     DisposalRequest,
     CollectionConfirmation,
-    ExpiryCompanyQuoteCreate,
-    ExpiryCompanyQuoteRead,
-    ExpiryCompanyTransferConfirmation,
     SMTPStatus,
     SMTPTestRequest,
     PharmacyCreate,
@@ -68,9 +65,9 @@ from app.schemas import (
 )
 from app.services.auth import create_access_token, get_current_user, hash_password, require_roles, verify_password
 from app.services.forecast import forecast_consumption
-from app.services.email_notifications import send_procurement_email, smtp_configuration_status
+from app.services.email_notifications import send_procurement_email
 from app.services.seed import add_who_starter_catalogue
-from app.models.entities import AuditLog, HospitalDepartment, InventoryTransaction, MedicineCategory, ProcurementInvoice, ProcurementRequest, PurchaseOrder, SaleInvoice, StorageLocation, Supplier
+from app.models.entities import AccountingEntry, AuditLog, HospitalDepartment, InventoryTransaction, MedicineCategory, ProcurementInvoice, ProcurementRequest, PurchaseOrder, SaleInvoice, StorageLocation, Supplier
 
 settings = get_settings()
 router = APIRouter()
@@ -78,11 +75,6 @@ router = APIRouter()
 
 def _tenant_medicines(db: Session, user: User):
     return db.query(Medicine).filter(Medicine.pharmacy_id == user.pharmacy_id)
-
-
-def _usable_batch(batch: BatchStock, today: date | None = None) -> bool:
-    today = today or date.today()
-    return batch.quantity > 0 and batch.disposal_status == "active" and batch.expiry_date >= today
 
 
 def _refresh_equipment_waste_status(db: Session, pharmacy_id: int) -> None:
@@ -235,24 +227,24 @@ def dashboard_summary(
 ) -> DashboardSummary:
     medicines = _tenant_medicines(db, current_user).count()
     batches = db.query(BatchStock).join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id).count()
-    total_units = sum(batch.quantity for medicine in _tenant_medicines(db, current_user).options(joinedload(Medicine.batches)).all() for batch in medicine.batches if _usable_batch(batch))
+    total_units = db.query(func.coalesce(func.sum(BatchStock.quantity), 0)).join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id).scalar() or 0
     low_stock_items = 0
     near_expiry_batches = 0
 
     today = date.today()
     for medicine in _tenant_medicines(db, current_user).options(joinedload(Medicine.batches)).all():
-        stock = sum(batch.quantity for batch in medicine.batches if _usable_batch(batch))
+        stock = sum(batch.quantity for batch in medicine.batches if batch.disposal_status == "active")
         # A reorder level is a planning target. A low-stock safety alert is only
         # raised when the medicine has five or fewer usable units remaining.
         if stock <= 5:
             low_stock_items += 1
         near_expiry_batches += sum(
-            1 for batch in medicine.batches if batch.disposal_status == "active" and batch.expiry_date <= today + timedelta(days=settings.near_expiry_days)
+            1 for batch in medicine.batches if batch.expiry_date <= today + timedelta(days=settings.near_expiry_days)
         )
 
     monthly_consumption = (
         db.query(func.coalesce(func.sum(ConsumptionRecord.quantity), 0))
-        .join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id, ConsumptionRecord.consumed_on >= today - timedelta(days=30))
+        .filter(ConsumptionRecord.consumed_on >= today - timedelta(days=30))
         .scalar()
         or 0
     )
@@ -278,8 +270,8 @@ def dashboard_insights(
         total_medicines=_tenant_medicines(db, current_user).count(),
         total_batches=db.query(BatchStock).join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id).count(),
         total_suppliers=db.query(Supplier).count(),
-        total_transactions=db.query(InventoryTransaction).join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id).count(),
-        total_purchase_orders=db.query(PurchaseOrder).filter(PurchaseOrder.pharmacy_id == current_user.pharmacy_id).count(),
+        total_transactions=db.query(InventoryTransaction).count(),
+        total_purchase_orders=db.query(PurchaseOrder).count(),
         total_departments=db.query(HospitalDepartment).count(),
         total_locations=db.query(StorageLocation).count(),
     )
@@ -517,7 +509,6 @@ def list_transactions(
     rows = (
         db.query(InventoryTransaction, Medicine.name.label("medicine_name"))
         .join(Medicine, InventoryTransaction.medicine_id == Medicine.id)
-        .filter(Medicine.pharmacy_id == current_user.pharmacy_id)
         .order_by(InventoryTransaction.transaction_date.desc(), InventoryTransaction.id.desc())
         .all()
     )
@@ -549,21 +540,6 @@ def list_purchase_orders(
     current_user: User = Depends(require_roles("admin", "pharmacist")),
 ) -> list[PurchaseOrderRead]:
     return [PurchaseOrderRead.model_validate(order) for order in db.query(PurchaseOrder).filter(PurchaseOrder.pharmacy_id == current_user.pharmacy_id).order_by(PurchaseOrder.order_date.desc()).all()]
-
-
-@router.get("/sales", response_model=list[SaleInvoiceRead])
-def list_sales(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("admin", "pharmacist")),
-) -> list[SaleInvoiceRead]:
-    sales = (
-        db.query(SaleInvoice)
-        .filter(SaleInvoice.pharmacy_id == current_user.pharmacy_id)
-        .order_by(SaleInvoice.sold_at.desc())
-        .limit(50)
-        .all()
-    )
-    return [SaleInvoiceRead.model_validate(sale) for sale in sales]
 
 
 @router.get("/reports/financial-summary", response_model=FinancialSummary)
@@ -765,8 +741,8 @@ def update_batch(
         received_on=batch.received_on,
         expiry_date=batch.expiry_date,
         location=batch.location,
-        medicine_name=medicine.name if medicine else None,
         recovery_unit_price=batch.recovery_unit_price,
+        medicine_name=medicine.name if medicine else None,
         disposal_status=batch.disposal_status,
         disposal_method=batch.disposal_method,
         disposal_reference=batch.disposal_reference,
@@ -826,86 +802,14 @@ def confirm_expiry_collection(
         raise HTTPException(status_code=404, detail="Batch not found")
     if batch.disposal_status != "collection_requested":
         raise HTTPException(status_code=409, detail="Request collection before confirming handover")
-    disposed_quantity = batch.quantity
-    batch.quantity = 0
     batch.disposal_status = "disposed"
     batch.disposal_reference = payload.handover_reference.strip()
     batch.disposed_on = date.today()
-    db.add(InventoryTransaction(transaction_date=date.today(), medicine_id=batch.medicine_id, transaction_type="Expiry disposal", quantity=disposed_quantity, reference=batch.disposal_reference, note=payload.note or f"Collected through {batch.disposal_method}"))
+    db.add(InventoryTransaction(transaction_date=date.today(), medicine_id=batch.medicine_id, transaction_type="Expiry disposal", quantity=batch.quantity, reference=batch.disposal_reference, note=payload.note or f"Collected through {batch.disposal_method}"))
     db.add(AuditLog(actor_username=current_user.username, action="expired_stock_collected", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: collected through {batch.disposal_method}; manifest {batch.disposal_reference}"))
     db.commit()
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
     return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
-
-
-@router.get("/expiry-company-transfers", response_model=list[ExpiryCompanyQuoteRead])
-def list_expiry_company_transfers(db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> list[ExpiryCompanyQuoteRead]:
-    records = db.query(ExpiryCompanyTransfer).filter(ExpiryCompanyTransfer.pharmacy_id == current_user.pharmacy_id).order_by(ExpiryCompanyTransfer.id.desc()).limit(100).all()
-    return [ExpiryCompanyQuoteRead.model_validate(record) for record in records]
-
-
-@router.post("/batches/{batch_id}/expiry-company-quote", response_model=ExpiryCompanyQuoteRead, status_code=status.HTTP_201_CREATED)
-def create_expiry_company_quote(batch_id: int, payload: ExpiryCompanyQuoteCreate, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> ExpiryCompanyQuoteRead:
-    batch = db.query(BatchStock).join(Medicine).filter(BatchStock.id == batch_id, Medicine.pharmacy_id == current_user.pharmacy_id).first()
-    if not batch:
-        raise HTTPException(status_code=404, detail="Batch not found")
-    if batch.expiry_date >= date.today():
-        raise HTTPException(status_code=400, detail="Company recovery quotes are only allowed for expired batches")
-    if batch.disposal_status in {"disposed", "collection_requested"}:
-        raise HTTPException(status_code=409, detail="This batch already has an active collection workflow")
-    if payload.quantity <= 0 or payload.quantity > batch.quantity:
-        raise HTTPException(status_code=400, detail=f"Quantity must be between 1 and {batch.quantity}")
-    if not payload.company_name.strip() or not payload.company_contact.strip():
-        raise HTTPException(status_code=400, detail="Company name and contact are required")
-    medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
-    unit_price = batch.recovery_unit_price if payload.recovery_unit_price is None else payload.recovery_unit_price
-    if unit_price < 0:
-        raise HTTPException(status_code=400, detail="Recovery price cannot be negative")
-    record = ExpiryCompanyTransfer(
-        quote_number=f"EXQ-{datetime.utcnow():%Y%m%d%H%M%S%f}", batch_id=batch.id,
-        medicine_name=medicine.name if medicine else "Unknown medicine", batch_number=batch.batch_number,
-        company_name=payload.company_name.strip(), company_contact=payload.company_contact.strip(),
-        quantity=payload.quantity, recovery_unit_price=unit_price, total_amount=round(payload.quantity * unit_price, 2),
-        status="quoted", quoted_on=date.today(), pharmacy_id=current_user.pharmacy_id,
-    )
-    batch.disposal_status = "recovery_quoted"
-    db.add(record)
-    db.add(AuditLog(actor_username=current_user.username, action="expiry_company_quote_created", entity_name="batch", entity_id=batch.id, description=f"{record.quote_number}: {record.quantity} units offered to {record.company_name} for {record.total_amount:.2f}"))
-    db.commit()
-    db.refresh(record)
-    return ExpiryCompanyQuoteRead.model_validate(record)
-
-
-@router.post("/expiry-company-transfers/{transfer_id}/confirm", response_model=ExpiryCompanyQuoteRead)
-def confirm_expiry_company_transfer(transfer_id: int, payload: ExpiryCompanyTransferConfirmation, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> ExpiryCompanyQuoteRead:
-    record = db.query(ExpiryCompanyTransfer).filter(ExpiryCompanyTransfer.id == transfer_id, ExpiryCompanyTransfer.pharmacy_id == current_user.pharmacy_id).first()
-    if not record:
-        raise HTTPException(status_code=404, detail="Expiry company quote not found")
-    if record.status != "quoted":
-        raise HTTPException(status_code=409, detail="Only an open quote can be transferred")
-    reference = payload.transfer_reference.strip()
-    if not reference:
-        raise HTTPException(status_code=400, detail="Transfer reference is required")
-    batch = db.query(BatchStock).filter(BatchStock.id == record.batch_id).first()
-    if not batch or batch.quantity < record.quantity:
-        raise HTTPException(status_code=409, detail="The batch no longer has enough quantity for this transfer")
-    batch.quantity -= record.quantity
-    if batch.quantity == 0:
-        batch.disposal_status = "disposed"
-    else:
-        batch.disposal_status = "recovery_partial"
-    batch.disposal_method = "licensed company recovery"
-    batch.disposal_reference = reference
-    batch.disposed_on = date.today()
-    record.status = "transferred"
-    record.invoice_number = f"EXI-{datetime.utcnow():%Y%m%d%H%M%S%f}"
-    record.transferred_on = date.today()
-    record.transfer_reference = reference
-    db.add(InventoryTransaction(transaction_date=date.today(), medicine_id=batch.medicine_id, transaction_type="Expiry company transfer", quantity=record.quantity, reference=record.invoice_number, note=f"{record.company_name}; quote {record.quote_number}; transfer {reference}"))
-    db.add(AuditLog(actor_username=current_user.username, action="expiry_company_transfer_confirmed", entity_name="expiry_company_transfer", entity_id=record.id, description=f"{record.invoice_number}: {record.quantity} units transferred to {record.company_name}; reference {reference}"))
-    db.commit()
-    db.refresh(record)
-    return ExpiryCompanyQuoteRead.model_validate(record)
 
 
 @router.post("/batches/{batch_id}/email-supplier-return")
@@ -918,11 +822,7 @@ def email_supplier_return(batch_id: int, db: Session = Depends(get_db), current_
         raise HTTPException(status_code=400, detail="Original supplier email is not available")
     pharmacy = db.query(Pharmacy).filter(Pharmacy.id == current_user.pharmacy_id).first()
     body = f"Dear {supplier.contact_person},\n\nPlease arrange collection/return authorization for expired stock purchased from your organisation.\n\nPharmacy: {pharmacy.name if pharmacy else ''}\nMedicine batch: {batch.batch_number}\nQuantity: {batch.quantity}\nExpiry: {batch.expiry_date}\n\nPlease reply with collection date and return challan instructions.\n"
-    try:
-        delivered = send_procurement_email(recipient=supplier.email, subject=f"Expired-stock return request: {batch.batch_number}", body=body)
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"SMTP delivery failed ({type(error).__name__}). Check the provider username, app password, sender address, and TLS settings.") from error
-    if not delivered:
+    if not send_procurement_email(recipient=supplier.email, subject=f"Expired-stock return request: {batch.batch_number}", body=body):
         raise HTTPException(status_code=503, detail="SMTP is not configured; add SMTP settings before sending email")
     db.add(AuditLog(actor_username=current_user.username, action="supplier_return_email_sent", entity_name="batch", entity_id=batch.id, description=f"Return request sent to {supplier.email}")); db.commit()
     return {"detail": f"Return request emailed to {supplier.email}"}
@@ -955,11 +855,7 @@ def send_test_email(
             "If you received this message, the communication channel is working."
         )
     )
-    try:
-        delivered = send_procurement_email(recipient=recipient, subject=subject, body=body)
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"SMTP delivery failed ({type(error).__name__}). Check the provider username, app password, sender address, and TLS settings.") from error
-    if not delivered:
+    if not send_procurement_email(recipient=recipient, subject=subject, body=body):
         raise HTTPException(status_code=503, detail="SMTP is not configured. Add SMTP_HOST and SMTP_FROM_EMAIL before sending mail.")
     db.add(AuditLog(actor_username=current_user.username, action="smtp_test_email_sent", entity_name="communication", entity_id=current_user.id, description=f"SMTP test email sent to {recipient}"))
     db.commit()
@@ -990,11 +886,7 @@ def email_expiry_reminder(batch_id: int, db: Session = Depends(get_db), current_
         "If a return or collection is possible, please confirm the pickup instructions and any authorization reference required.\n"
     )
     subject = f"Expiry reminder: {batch.batch_number}"
-    try:
-        delivered = send_procurement_email(recipient=supplier.email, subject=subject, body=body)
-    except Exception as error:
-        raise HTTPException(status_code=502, detail=f"SMTP delivery failed ({type(error).__name__}). Check the provider username, app password, sender address, and TLS settings.") from error
-    if not delivered:
+    if not send_procurement_email(recipient=supplier.email, subject=subject, body=body):
         raise HTTPException(status_code=503, detail="SMTP is not configured; add SMTP settings before sending email")
     db.add(AuditLog(actor_username=current_user.username, action="expiry_reminder_email_sent", entity_name="batch", entity_id=batch.id, description=f"Expiry reminder sent to {supplier.email}"))
     db.commit()
@@ -1011,19 +903,21 @@ def dispense_fefo(
     lookup = payload.lookup.strip()
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be greater than zero")
-    medicine = _tenant_medicines(db, current_user).filter(Medicine.sku == lookup).first()
+    medicine = _tenant_medicines(db, current_user).filter(
+        (Medicine.sku == lookup) | (func.lower(Medicine.name) == lookup.lower())
+    ).first()
     query = db.query(BatchStock).join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id, BatchStock.quantity > 0, BatchStock.expiry_date >= date.today(), BatchStock.disposal_status == "active")
     if medicine:
         query = query.filter(BatchStock.medicine_id == medicine.id)
     else:
         query = query.filter(BatchStock.batch_number == lookup)
-    batch = query.order_by(BatchStock.expiry_date.asc()).first()
+    batch = query.order_by(BatchStock.expiry_date.asc()).with_for_update().first()
     if not batch:
         raise HTTPException(status_code=404, detail="No usable batch found for this barcode, SKU, or batch number")
     if batch.quantity < payload.quantity:
         raise HTTPException(status_code=400, detail=f"Only {batch.quantity} units are available in FEFO batch {batch.batch_number}")
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
-    previous_total = sum(item.quantity for item in medicine.batches if _usable_batch(item)) if medicine else batch.quantity
+    previous_total = sum(item.quantity for item in medicine.batches) if medicine else batch.quantity
     batch.quantity -= payload.quantity
     department_stock = db.query(DepartmentInventory).filter(DepartmentInventory.pharmacy_id == current_user.pharmacy_id, DepartmentInventory.department == payload.department, DepartmentInventory.medicine_id == batch.medicine_id, DepartmentInventory.batch_number == batch.batch_number).first()
     if department_stock:
@@ -1035,13 +929,19 @@ def dispense_fefo(
         quantity=payload.quantity, reference=f"FEFO-{batch.batch_number}", department=payload.department,
         note=payload.note or f"Barcode/QR lookup: {lookup}",
     ))
-    db.add(ConsumptionRecord(medicine_id=batch.medicine_id, consumed_on=date.today(), quantity=payload.quantity, ward=payload.department))
     db.commit()
+    # A dispensing event can be the moment a medicine crosses its reorder level.
+    # Procurement automation is best-effort and must never block a clinical issue.
+    try:
+        create_procurement_requests_from_alerts(db=db, current_user=current_user)
+    except Exception:
+        db.rollback()
     if medicine:
-        _notify_critical_stock(db=db, medicine=medicine, previous_total=previous_total, current_total=sum(item.quantity for item in medicine.batches if _usable_batch(item)))
+        _notify_critical_stock(db=db, medicine=medicine, previous_total=previous_total, current_total=sum(item.quantity for item in medicine.batches))
     medicine_name = db.query(Medicine.name).filter(Medicine.id == batch.medicine_id).scalar()
     return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier,
-        quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine_name)
+        quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine_name,
+        disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
 
 
 @router.post("/sales", response_model=SaleInvoiceRead, status_code=status.HTTP_201_CREATED)
@@ -1054,36 +954,52 @@ def sell_medicine(
     if payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="Quantity must be positive")
     lookup = payload.lookup.strip()
-    medicine = _tenant_medicines(db, current_user).filter(Medicine.sku == lookup).first()
+    medicine = _tenant_medicines(db, current_user).filter(
+        (Medicine.sku == lookup) | (func.lower(Medicine.name) == lookup.lower())
+    ).first()
     query = db.query(BatchStock).join(Medicine).filter(Medicine.pharmacy_id == current_user.pharmacy_id, BatchStock.quantity > 0, BatchStock.expiry_date >= date.today(), BatchStock.disposal_status == "active")
     if medicine:
         query = query.filter(BatchStock.medicine_id == medicine.id)
     else:
         query = query.filter(BatchStock.batch_number == lookup)
-    batch = query.order_by(BatchStock.expiry_date.asc()).first()
-    if not batch:
+    batches = query.order_by(BatchStock.expiry_date.asc(), BatchStock.id.asc()).with_for_update().all()
+    if not batches:
         raise HTTPException(status_code=404, detail="No saleable batch found for this SKU or batch number")
-    medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
-    if not medicine or batch.quantity < payload.quantity:
-        raise HTTPException(status_code=400, detail=f"Only {batch.quantity} units are available in batch {batch.batch_number}")
+    medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batches[0].medicine_id).first()
+    total_available = sum(batch.quantity for batch in batches)
+    if not medicine or total_available < payload.quantity:
+        raise HTTPException(status_code=400, detail=f"Only {total_available} units are available for this medicine")
 
-    previous_total = sum(item.quantity for item in medicine.batches if _usable_batch(item))
-    batch.quantity -= payload.quantity
-    total = round(payload.quantity * batch.unit_price, 2)
+    previous_total = sum(item.quantity for item in medicine.batches if item.disposal_status == "active" and item.expiry_date >= date.today())
+    remaining = payload.quantity
+    sale_value = 0.0
+    consumed_batches: list[str] = []
+    for batch in batches:
+        if remaining <= 0:
+            break
+        consumed = min(batch.quantity, remaining)
+        batch.quantity -= consumed
+        remaining -= consumed
+        sale_value += consumed * batch.unit_price
+        consumed_batches.append(f"{batch.batch_number} ({consumed})")
+    total = round(sale_value, 2)
+    average_unit_price = round(total / payload.quantity, 2)
     invoice = SaleInvoice(
         invoice_number=f"SAL-{datetime.utcnow():%Y%m%d%H%M%S%f}",
         buyer_name=payload.buyer_name.strip(), buyer_phone=payload.buyer_phone.strip() if payload.buyer_phone else None,
-        medicine_name=medicine.name, sku=medicine.sku, batch_number=batch.batch_number,
-        quantity=payload.quantity, unit_price=batch.unit_price, total_amount=total, sold_by=current_user.full_name, pharmacy_id=current_user.pharmacy_id,
+        medicine_name=medicine.name, sku=medicine.sku, batch_number=", ".join(consumed_batches),
+        quantity=payload.quantity, unit_price=average_unit_price, total_amount=total, sold_by=current_user.full_name, pharmacy_id=current_user.pharmacy_id,
     )
     db.add_all([invoice, InventoryTransaction(
         transaction_date=date.today(), medicine_id=medicine.id, transaction_type="Sale", quantity=payload.quantity,
-        reference=invoice.invoice_number, department=None, note=f"Retail sale to {invoice.buyer_name}",
+        reference=invoice.invoice_number, department=None, note=f"Retail sale to {invoice.buyer_name}; FEFO batches: {', '.join(consumed_batches)}",
+    ), AccountingEntry(
+        pharmacy_id=current_user.pharmacy_id, entry_type="sale", reference=invoice.invoice_number,
+        description=f"Sale of {medicine.name} to {invoice.buyer_name}", debit=total, credit=total,
     )])
-    db.add(ConsumptionRecord(medicine_id=medicine.id, consumed_on=date.today(), quantity=payload.quantity, ward="Retail sale"))
     db.commit()
     db.refresh(invoice)
-    _notify_critical_stock(db=db, medicine=medicine, previous_total=previous_total, current_total=sum(item.quantity for item in medicine.batches if _usable_batch(item)))
+    _notify_critical_stock(db=db, medicine=medicine, previous_total=previous_total, current_total=sum(item.quantity for item in medicine.batches))
     return SaleInvoiceRead.model_validate(invoice)
 
 
@@ -1106,7 +1022,7 @@ def get_forecast(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")
     records = (
         db.query(ConsumptionRecord)
-        .join(Medicine).filter(ConsumptionRecord.medicine_id == medicine_id, Medicine.pharmacy_id == current_user.pharmacy_id)
+        .filter(ConsumptionRecord.medicine_id == medicine_id)
         .order_by(ConsumptionRecord.consumed_on.asc())
         .all()
     )

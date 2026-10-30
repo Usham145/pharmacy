@@ -11,6 +11,7 @@ from app.models.entities import (
     AuditLog,
     BatchStock,
     ConsumptionRecord,
+    DepartmentInventory,
     HospitalDepartment,
     InventoryTransaction,
     Medicine,
@@ -43,32 +44,6 @@ WHO_STARTER_MEDICINES = [
     ("Adrenaline", "Emergency", "ampoule", "Emergency medicine"),
     ("Normal saline", "IV Fluids", "bottle", "Intravenous fluid"),
     ("Oxytocin", "Hormone", "ampoule", "Obstetric medicine"),
-]
-
-ADDITIONAL_DEMO_MEDICINES = [
-    ("Aspirin 75mg", "Cardiac", "tablet"), ("Clopidogrel 75mg", "Cardiac", "tablet"), ("Bisoprolol 5mg", "Cardiac", "tablet"),
-    ("Carvedilol 6.25mg", "Cardiac", "tablet"), ("Enalapril 5mg", "Cardiac", "tablet"), ("Hydrochlorothiazide 25mg", "Cardiac", "tablet"),
-    ("Spironolactone 25mg", "Cardiac", "tablet"), ("Simvastatin 20mg", "Cardiac", "tablet"), ("Warfarin 5mg", "Cardiac", "tablet"),
-    ("Heparin 5000 IU", "Cardiac", "vial"), ("Cefixime 200mg", "Antibiotic", "tablet"), ("Clindamycin 300mg", "Antibiotic", "capsule"),
-    ("Doxycycline 100mg", "Antibiotic", "capsule"), ("Levofloxacin 500mg", "Antibiotic", "tablet"), ("Piperacillin Tazobactam", "Antibiotic", "vial"),
-    ("Vancomycin 500mg", "Critical Care", "vial"), ("Gentamicin 80mg", "Antibiotic", "ampoule"), ("Metronidazole 500mg", "Antibiotic", "tablet"),
-    ("Nitrofurantoin 100mg", "Urology", "capsule"), ("Albendazole 400mg", "Antiparasitic", "tablet"), ("Acyclovir Ointment", "Antiviral", "tube"),
-    ("Oseltamivir 75mg", "Antiviral", "capsule"), ("Nystatin Oral Suspension", "Antifungal", "bottle"), ("Ketoconazole Cream", "Antifungal", "tube"),
-    ("Hydrocortisone Cream", "Dermatology", "tube"), ("Mupirocin Ointment", "Dermatology", "tube"), ("Calamine Lotion", "Dermatology", "bottle"),
-    ("Loratadine 10mg", "Antihistamine", "tablet"), ("Chlorpheniramine 4mg", "Antihistamine", "tablet"), ("Prednisolone 5mg", "Hormone", "tablet"),
-    ("Budesonide Nebules", "Respiratory", "ampoule"), ("Ipratropium Nebules", "Respiratory", "ampoule"), ("Theophylline 200mg", "Respiratory", "tablet"),
-    ("Guaifenesin Syrup", "Respiratory", "bottle"), ("Dextromethorphan Syrup", "Respiratory", "bottle"), ("Benzylpenicillin", "Injection", "vial"),
-    ("Lidocaine 2%", "Anaesthesia", "vial"), ("Bupivacaine 0.5%", "Anaesthesia", "vial"), ("Ketamine 50mg", "Anaesthesia", "vial"),
-    ("Propofol 10mg/ml", "Anaesthesia", "vial"), ("Mannitol 20%", "Emergency", "bottle"), ("Magnesium Sulfate", "Emergency", "ampoule"),
-    ("Calcium Gluconate", "Emergency", "ampoule"), ("Sodium Bicarbonate", "Emergency", "ampoule"), ("Atropine 1mg", "Emergency", "ampoule"),
-    ("Noradrenaline 4mg", "Critical Care", "ampoule"), ("Dopamine 200mg", "Critical Care", "ampoule"), ("Fentanyl 50mcg", "Critical Care", "ampoule"),
-    ("Morphine 10mg", "Critical Care", "ampoule"), ("Potassium Chloride", "IV Fluids", "ampoule"), ("Dextrose 25%", "IV Fluids", "ampoule"),
-    ("Dextrose 5% 500ml", "IV Fluids", "bottle"), ("Paediatric ORS", "Gastrointestinal", "sachet"), ("Domperidone 10mg", "Gastrointestinal", "tablet"),
-    ("Sucralfate Suspension", "Gastrointestinal", "bottle"), ("Bisacodyl 5mg", "Gastrointestinal", "tablet"), ("Tranexamic Acid", "Emergency", "ampoule"),
-    ("Vitamin B Complex", "Vitamin", "tablet"), ("Calcium Carbonate", "Vitamin", "tablet"), ("Zinc Sulfate", "Vitamin", "tablet"),
-    ("Cyanocobalamin", "Vitamin", "ampoule"), ("Erythropoietin 4000 IU", "Renal", "vial"), ("Tamsulosin 0.4mg", "Urology", "capsule"),
-    ("Carbamazepine 200mg", "Neurology", "tablet"), ("Sodium Valproate", "Neurology", "tablet"), ("Sertraline 50mg", "Psychiatry", "tablet"),
-    ("Haloperidol 5mg", "Psychiatry", "ampoule"), ("Artificial Tears", "Ophthalmology", "bottle"), ("Timolol Eye Drops", "Ophthalmology", "bottle"),
 ]
 
 
@@ -165,16 +140,21 @@ def seed_demo_data(db: Session) -> None:
         HospitalDepartment(name="Pediatrics", floor="1st", contact_extension="1005"),
         HospitalDepartment(name="Cardiology", floor="4th", contact_extension="1006"),
         HospitalDepartment(name="Orthopedics", floor="4th", contact_extension="1007"),
+        HospitalDepartment(name="Maternity", floor="2nd", contact_extension="1008"),
+        HospitalDepartment(name="Oncology", floor="5th", contact_extension="1009"),
+        HospitalDepartment(name="Radiology", floor="1st", contact_extension="1010"),
     ]
     existing_departments = {department.name for department in db.query(HospitalDepartment).all()}
     db.add_all([department for department in departments if department.name not in existing_departments])
 
     locations = [
+        StorageLocation(code="Main Store", name="Main Store", temperature_zone="Room", notes="Primary pharmacy store for active stock"),
         StorageLocation(code="A1", name="Shelf A1", temperature_zone="Room", notes="General analgesics and common tablets"),
         StorageLocation(code="A2", name="Shelf A2", temperature_zone="Room", notes="Antibiotics"),
         StorageLocation(code="B1", name="Refrigerated B1", temperature_zone="Refrigerated", notes="Vaccines and insulin"),
         StorageLocation(code="B2", name="Refrigerated B2", temperature_zone="Refrigerated", notes="Biologics and sensitive medicines"),
         StorageLocation(code="C1", name="Controlled C1", temperature_zone="Controlled", notes="Restricted drugs"),
+        StorageLocation(code="QUARANTINE", name="Quarantine Store", temperature_zone="Quarantine", notes="Expired, damaged, or restricted stock awaiting an approved disposition"),
     ]
     existing_locations = {location.code for location in db.query(StorageLocation).all()}
     db.add_all([location for location in locations if location.code not in existing_locations])
@@ -238,10 +218,6 @@ def seed_demo_data(db: Session) -> None:
         Medicine(name="Folic Acid 5mg", sku="MED-039", category="Vitamin", unit="tablet", reorder_level=70, ideal_stock=210, description="Vitamin B9 supplementation"),
         Medicine(name="Ferrous Ascorbate", sku="MED-040", category="Vitamin", unit="tablet", reorder_level=70, ideal_stock=210, description="Iron supplementation"),
     ]
-    medicines.extend(
-        Medicine(name=name, sku=f"MED-{index:03d}", category=category, unit=unit, reorder_level=60, ideal_stock=240, description=f"Generic {name} starter catalogue item")
-        for index, (name, category, unit) in enumerate(ADDITIONAL_DEMO_MEDICINES, start=41)
-    )
     existing_medicines = {medicine.sku for medicine in db.query(Medicine).all()}
     medicine_objects: list[Medicine] = []
     for medicine in medicines:
@@ -260,10 +236,9 @@ def seed_demo_data(db: Session) -> None:
             continue
         if db.query(BatchStock).filter(BatchStock.medicine_id == medicine.id).count() > 0:
             continue
+        base_quantity = medicine.ideal_stock - (medicine_index * 28)
         for batch_index in range(4):
-            lower_stock = max(20, int(medicine.ideal_stock * 0.25))
-            upper_stock = max(lower_stock + 20, int(medicine.ideal_stock * 0.95))
-            quantity = rng.randint(lower_stock, upper_stock)
+            quantity = max(15, base_quantity - batch_index * rng.randint(15, 60))
             expiry_offset = 20 + medicine_index * 12 + batch_index * 38
             batch = BatchStock(
                 medicine_id=medicine.id,
@@ -302,21 +277,6 @@ def seed_demo_data(db: Session) -> None:
                     note="Synthetic consumption history",
                 )
             )
-
-    # Keep a visible, deterministic expiry test set in the main demo pharmacy.
-    # Four batches expire within a week and six more within the following month.
-    expiry_offsets = [3, 5, 7, 9, 12, 16, 20, 24, 27, 30]
-    expiry_medicines = db.query(Medicine).filter(Medicine.pharmacy_id == pharmacy.id, Medicine.sku.like("MED-%")).order_by(Medicine.sku.asc()).limit(10).all()
-    for medicine, expiry_offset in zip(expiry_medicines, expiry_offsets):
-        batch_number = f"{medicine.sku}-EXP-01"
-        if not db.query(BatchStock).filter(BatchStock.batch_number == batch_number).first():
-            db.add(BatchStock(
-                medicine_id=medicine.id, batch_number=batch_number,
-                supplier=suppliers[medicine.id % len(suppliers)].company_name,
-                quantity=24 + (medicine.id % 4) * 6, unit_price=45.0 + medicine.id,
-                recovery_unit_price=round(5.0 + (medicine.id % 5) * 1.5, 2), received_on=_days_ago(120),
-                expiry_date=date.today() + timedelta(days=expiry_offset), location="A1",
-            ))
 
         db.add(
             InventoryTransaction(
@@ -362,6 +322,55 @@ def seed_demo_data(db: Session) -> None:
 
     for batch in db.query(BatchStock).filter(BatchStock.recovery_unit_price <= 0).all():
         batch.recovery_unit_price = recovery_prices[(batch.medicine_id - 1) % len(recovery_prices)]
+
+    department_allocations = [
+        ("Emergency", "MED-001", 20),
+        ("ICU", "MED-009", 10),
+        ("General Ward", "MED-004", 20),
+        ("Pediatrics", "MED-002", 15),
+        ("Cardiology", "MED-020", 12),
+        ("Orthopedics", "MED-011", 12),
+        ("Maternity", "MED-039", 10),
+        ("Oncology", "MED-005", 10),
+        ("Radiology", "MED-028", 10),
+    ]
+    for department_name, sku, quantity in department_allocations:
+        medicine = db.query(Medicine).filter(Medicine.pharmacy_id == pharmacy.id, Medicine.sku == sku).first()
+        if not medicine or db.query(DepartmentInventory).filter(
+            DepartmentInventory.pharmacy_id == pharmacy.id,
+            DepartmentInventory.department == department_name,
+            DepartmentInventory.medicine_id == medicine.id,
+        ).first():
+            continue
+        remaining = quantity
+        for batch in db.query(BatchStock).filter(
+            BatchStock.medicine_id == medicine.id,
+            BatchStock.quantity > 0,
+            BatchStock.expiry_date >= date.today(),
+            BatchStock.disposal_status == "active",
+        ).order_by(BatchStock.expiry_date.asc()).all():
+            if remaining <= 0:
+                break
+            transferred = min(batch.quantity, remaining)
+            batch.quantity -= transferred
+            remaining -= transferred
+            db.add(DepartmentInventory(
+                pharmacy_id=pharmacy.id,
+                department=department_name,
+                medicine_id=medicine.id,
+                batch_number=batch.batch_number,
+                quantity=transferred,
+            ))
+        if remaining < quantity:
+            db.add(InventoryTransaction(
+                transaction_date=date.today(),
+                medicine_id=medicine.id,
+                transaction_type="Dispense",
+                quantity=quantity - remaining,
+                reference=f"DEMO-DEP-{department_name.upper().replace(' ', '-')}",
+                department=department_name,
+                note="Seeded demo department custody stock",
+            ))
 
     if db.query(AuditLog).count() == 0:
         db.add(

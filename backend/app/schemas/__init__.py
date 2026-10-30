@@ -332,37 +332,6 @@ class CollectionConfirmation(BaseModel):
     note: str | None = None
 
 
-class ExpiryCompanyQuoteCreate(BaseModel):
-    company_name: str
-    company_contact: str
-    quantity: int
-    recovery_unit_price: float | None = None
-
-
-class ExpiryCompanyQuoteRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    quote_number: str
-    invoice_number: str | None = None
-    batch_id: int
-    medicine_name: str
-    batch_number: str
-    company_name: str
-    company_contact: str
-    quantity: int
-    recovery_unit_price: float
-    total_amount: float
-    status: str
-    quoted_on: date
-    transferred_on: date | None = None
-    transfer_reference: str | None = None
-
-
-class ExpiryCompanyTransferConfirmation(BaseModel):
-    transfer_reference: str
-
-
 class SMTPStatus(BaseModel):
     configured: bool
     host: str
