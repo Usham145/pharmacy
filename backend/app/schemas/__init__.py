@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserRead(BaseModel):
@@ -33,7 +33,7 @@ class PharmacyRegistration(PharmacyCreate):
     admin_username: str
     admin_full_name: str
     admin_email: str | None = None
-    admin_password: str
+    admin_password: str = Field(min_length=8)
 
 
 class UserCreate(BaseModel):
@@ -41,7 +41,7 @@ class UserCreate(BaseModel):
     full_name: str
     email: str | None = None
     role: str
-    password: str
+    password: str = Field(min_length=8)
     pharmacy_id: int | None = None
 
 
@@ -49,7 +49,7 @@ class UserUpdate(BaseModel):
     full_name: str | None = None
     email: str | None = None
     role: str | None = None
-    password: str | None = None
+    password: str | None = Field(default=None, min_length=8)
 
 
 class LoginRequest(BaseModel):

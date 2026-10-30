@@ -94,6 +94,16 @@ The system never claims that synthetic stock, supplier contact details, prices, 
 
     The local demo can use SQLite, but the submitted/deployed configuration is PostgreSQL 16. Set `DATABASE_URL` from `.env.example` before starting the backend. The database stores no real patient records; the supplied catalogue, suppliers, stock and consumption history are realistic synthetic hospital-operational data.
 
+    ### Backups, health checks, and tests
+
+    - Run `.\scripts\backup_postgres.ps1` with `DATABASE_URL` set to create a timestamped PostgreSQL dump in `backups/`.
+    - `GET /health` checks both the API process and its database connection and returns HTTP 503 when the database is unavailable.
+    - Run `python -m pytest backend/tests` from the repository root for focused authentication and input-validation coverage.
+    - Production startup requires `ENVIRONMENT=production` and a `SECRET_KEY` of at least 32 characters. Keep `.env` local and never commit credentials.
+    - Audit records are restricted to the signed-in pharmacy administrator's workspace through `GET /api/v1/audit-logs`.
+
+    Schema compatibility checks remain in `backend/app/main.py` for the existing student/demo database. The migration notes in `backend/migrations/README.md` document the safe backup and release workflow before moving to a full Alembic history.
+
     ## SMTP communication setup
 
     The Expiry & Waste page contains the SMTP delivery check. It is used for near-expiry reminders, supplier return requests, critical stock notifications, and the manual test email. Configure these values in the local `.env` file; never commit a real mailbox password.

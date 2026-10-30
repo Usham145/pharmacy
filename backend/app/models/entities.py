@@ -166,6 +166,7 @@ class AuditLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     action_time: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     actor_username: Mapped[str] = mapped_column(String(64), nullable=False)
+    pharmacy_id: Mapped[int | None] = mapped_column(ForeignKey("pharmacies.id"), nullable=True, index=True)
     action: Mapped[str] = mapped_column(String(128), nullable=False)
     entity_name: Mapped[str] = mapped_column(String(64), nullable=False)
     entity_id: Mapped[int] = mapped_column(Integer, nullable=False)

@@ -13,6 +13,7 @@ class Settings(BaseModel):
     api_prefix: str = "/api/v1"
     database_url: str = Field(default_factory=lambda: os.getenv("DATABASE_URL", "sqlite:///./pharmacy.db"))
     secret_key: str = os.getenv("SECRET_KEY", "dev-pharmacy-secret-key")
+    environment: str = os.getenv("ENVIRONMENT", "development")
     access_token_expire_minutes: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480"))
     cors_origins: list[str] = Field(
         default_factory=lambda: [

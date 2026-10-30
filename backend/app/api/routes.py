@@ -155,7 +155,7 @@ def _notify_critical_stock(*, db: Session, medicine: Medicine, previous_total: i
             # A notification outage must never block dispensing or a sale.
             continue
     if delivered:
-        db.add(AuditLog(actor_username="system", action="critical_stock_email_sent", entity_name="medicine", entity_id=medicine.id, description=f"Critical stock alert emailed to {', '.join(delivered)}"))
+        db.add(AuditLog(actor_username="system", pharmacy_id=medicine.pharmacy_id, action="critical_stock_email_sent", entity_name="medicine", entity_id=medicine.id, description=f"Critical stock alert emailed to {', '.join(delivered)}"))
         db.commit()
 
 
@@ -652,7 +652,7 @@ def approve_and_send_procurement_request(
     request.sent_at = datetime.utcnow()
     po = PurchaseOrder(po_number=request.request_number.replace("PR-", "PO-"), supplier_name=request.supplier_name, order_date=date.today(), total_amount=request.estimated_total, status="Sent", pharmacy_id=current_user.pharmacy_id)
     invoice = ProcurementInvoice(invoice_number=request.request_number.replace("PR-", "INV-"), procurement_request_id=request.id, amount=request.estimated_total)
-    db.add_all([po, invoice, AuditLog(actor_username=current_user.username, action="supplier_order_sent", entity_name="procurement_request", entity_id=request.id, description=f"Sent {request.request_number} to {request.supplier_email} and generated {invoice.invoice_number}")])
+    db.add_all([po, invoice, AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="supplier_order_sent", entity_name="procurement_request", entity_id=request.id, description=f"Sent {request.request_number} to {request.supplier_email} and generated {invoice.invoice_number}")])
     db.commit()
     return _procurement_read(request, invoice)
 
@@ -662,12 +662,13 @@ def list_audit_logs(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles("admin")),
 ) -> list[dict[str, Any]]:
-    logs = db.query(AuditLog).order_by(AuditLog.action_time.desc()).all()
+    logs = db.query(AuditLog).filter(AuditLog.pharmacy_id == current_user.pharmacy_id).order_by(AuditLog.action_time.desc()).all()
     return [
         {
             "id": log.id,
             "action_time": log.action_time.isoformat(),
             "actor_username": log.actor_username,
+            "pharmacy_id": log.pharmacy_id,
             "action": log.action,
             "entity_name": log.entity_name,
             "entity_id": log.entity_id,
@@ -783,7 +784,7 @@ def request_expiry_collection(
     batch.disposal_method = payload.method
     batch.disposal_reference = None
     batch.disposed_on = None
-    db.add(AuditLog(actor_username=current_user.username, action="expired_stock_collection_requested", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: {payload.method}; contact {payload.pickup_contact}; planned pickup {payload.pickup_date or 'not set'}; {payload.note or ''}"))
+    db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="expired_stock_collection_requested", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: {payload.method}; contact {payload.pickup_contact}; planned pickup {payload.pickup_date or 'not set'}; {payload.note or ''}"))
     db.commit()
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
     return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
@@ -806,7 +807,7 @@ def confirm_expiry_collection(
     batch.disposal_reference = payload.handover_reference.strip()
     batch.disposed_on = date.today()
     db.add(InventoryTransaction(transaction_date=date.today(), medicine_id=batch.medicine_id, transaction_type="Expiry disposal", quantity=batch.quantity, reference=batch.disposal_reference, note=payload.note or f"Collected through {batch.disposal_method}"))
-    db.add(AuditLog(actor_username=current_user.username, action="expired_stock_collected", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: collected through {batch.disposal_method}; manifest {batch.disposal_reference}"))
+    db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="expired_stock_collected", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: collected through {batch.disposal_method}; manifest {batch.disposal_reference}"))
     db.commit()
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
     return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
@@ -824,7 +825,7 @@ def email_supplier_return(batch_id: int, db: Session = Depends(get_db), current_
     body = f"Dear {supplier.contact_person},\n\nPlease arrange collection/return authorization for expired stock purchased from your organisation.\n\nPharmacy: {pharmacy.name if pharmacy else ''}\nMedicine batch: {batch.batch_number}\nQuantity: {batch.quantity}\nExpiry: {batch.expiry_date}\n\nPlease reply with collection date and return challan instructions.\n"
     if not send_procurement_email(recipient=supplier.email, subject=f"Expired-stock return request: {batch.batch_number}", body=body):
         raise HTTPException(status_code=503, detail="SMTP is not configured; add SMTP settings before sending email")
-    db.add(AuditLog(actor_username=current_user.username, action="supplier_return_email_sent", entity_name="batch", entity_id=batch.id, description=f"Return request sent to {supplier.email}")); db.commit()
+    db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="supplier_return_email_sent", entity_name="batch", entity_id=batch.id, description=f"Return request sent to {supplier.email}")); db.commit()
     return {"detail": f"Return request emailed to {supplier.email}"}
 
 
@@ -857,7 +858,7 @@ def send_test_email(
     )
     if not send_procurement_email(recipient=recipient, subject=subject, body=body):
         raise HTTPException(status_code=503, detail="SMTP is not configured. Add SMTP_HOST and SMTP_FROM_EMAIL before sending mail.")
-    db.add(AuditLog(actor_username=current_user.username, action="smtp_test_email_sent", entity_name="communication", entity_id=current_user.id, description=f"SMTP test email sent to {recipient}"))
+    db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="smtp_test_email_sent", entity_name="communication", entity_id=current_user.id, description=f"SMTP test email sent to {recipient}"))
     db.commit()
     return {"detail": f"Test email sent to {recipient}"}
 
@@ -888,7 +889,7 @@ def email_expiry_reminder(batch_id: int, db: Session = Depends(get_db), current_
     subject = f"Expiry reminder: {batch.batch_number}"
     if not send_procurement_email(recipient=supplier.email, subject=subject, body=body):
         raise HTTPException(status_code=503, detail="SMTP is not configured; add SMTP settings before sending email")
-    db.add(AuditLog(actor_username=current_user.username, action="expiry_reminder_email_sent", entity_name="batch", entity_id=batch.id, description=f"Expiry reminder sent to {supplier.email}"))
+    db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="expiry_reminder_email_sent", entity_name="batch", entity_id=batch.id, description=f"Expiry reminder sent to {supplier.email}"))
     db.commit()
     return {"detail": f"Expiry reminder emailed to {supplier.email}"}
 

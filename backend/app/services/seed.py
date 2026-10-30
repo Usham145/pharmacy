@@ -376,6 +376,7 @@ def seed_demo_data(db: Session) -> None:
         db.add(
             AuditLog(
                 actor_username=settings.demo_admin_username,
+                pharmacy_id=pharmacy.id,
                 action="seed_demo_data",
                 entity_name="system",
                 entity_id=0,

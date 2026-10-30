@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from fastapi import Depends, FastAPI
+from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.routes import router
@@ -30,6 +31,10 @@ app.include_router(extensions_router, prefix=settings.api_prefix)
 
 @app.on_event("startup")
 def on_startup() -> None:
+    if settings.environment.lower() in {"production", "prod"} and (
+        settings.secret_key == "dev-pharmacy-secret-key" or len(settings.secret_key) < 32
+    ):
+        raise RuntimeError("Production requires a SECRET_KEY with at least 32 characters.")
     Base.metadata.create_all(bind=engine)
     # Lightweight compatibility migration for existing demonstration databases.
     columns = {column["name"] for column in inspect(engine).get_columns("users")}
@@ -77,6 +82,9 @@ def on_startup() -> None:
             connection.execute(text("ALTER TABLE suppliers ADD COLUMN waste_vendor BOOLEAN NOT NULL DEFAULT 0"))
         if "waste_license_number" not in supplier_columns:
             connection.execute(text("ALTER TABLE suppliers ADD COLUMN waste_license_number VARCHAR(64)"))
+        audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_logs")}
+        if "pharmacy_id" not in audit_columns:
+            connection.execute(text("ALTER TABLE audit_logs ADD COLUMN pharmacy_id INTEGER"))
     db = next(get_db())
     try:
         seed_demo_data(db)
@@ -86,4 +94,9 @@ def on_startup() -> None:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except SQLAlchemyError as error:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database unavailable") from error
+    return {"status": "ok", "database": "ok"}
