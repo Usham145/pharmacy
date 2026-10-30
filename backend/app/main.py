@@ -85,6 +85,13 @@ def on_startup() -> None:
         audit_columns = {column["name"] for column in inspect(engine).get_columns("audit_logs")}
         if "pharmacy_id" not in audit_columns:
             connection.execute(text("ALTER TABLE audit_logs ADD COLUMN pharmacy_id INTEGER"))
+        connection.execute(
+            text(
+                "UPDATE audit_logs SET pharmacy_id = "
+                "(SELECT pharmacy_id FROM users WHERE users.username = audit_logs.actor_username) "
+                "WHERE pharmacy_id IS NULL"
+            )
+        )
     db = next(get_db())
     try:
         seed_demo_data(db)

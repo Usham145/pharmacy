@@ -27,10 +27,10 @@ router = APIRouter(prefix="/extensions", tags=["optional business modules"])
 
 
 class TaxProfilePayload(BaseModel):
-    gstin: str | None = None
-    legal_name: str | None = None
+    gstin: str | None = Field(default=None, max_length=32)
+    legal_name: str | None = Field(default=None, max_length=128)
     default_gst_rate: float = Field(default=0, ge=0, le=100)
-    state_code: str | None = None
+    state_code: str | None = Field(default=None, max_length=8)
 
 
 class TaxProfileRead(TaxProfilePayload):
@@ -40,9 +40,9 @@ class TaxProfileRead(TaxProfilePayload):
 
 
 class CustomerPayload(BaseModel):
-    name: str
-    phone: str | None = None
-    email: str | None = None
+    name: str = Field(min_length=2, max_length=128)
+    phone: str | None = Field(default=None, max_length=24)
+    email: str | None = Field(default=None, max_length=128)
     credit_limit: float = Field(default=0, ge=0)
 
 
@@ -55,13 +55,13 @@ class CustomerRead(CustomerPayload):
 
 
 class PrescriptionPayload(BaseModel):
-    patient_name: str
-    doctor_name: str | None = None
-    prescription_number: str
-    medicine_summary: str
+    patient_name: str = Field(min_length=2, max_length=128)
+    doctor_name: str | None = Field(default=None, max_length=128)
+    prescription_number: str = Field(min_length=2, max_length=64)
+    medicine_summary: str = Field(min_length=2, max_length=500)
     prescribed_on: date
     customer_id: int | None = None
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class PrescriptionRead(PrescriptionPayload):
@@ -74,8 +74,8 @@ class PrescriptionRead(PrescriptionPayload):
 class PaymentPayload(BaseModel):
     amount: float = Field(gt=0)
     method: str = Field(min_length=2, max_length=32)
-    invoice_number: str | None = None
-    provider: str | None = None
+    invoice_number: str | None = Field(default=None, max_length=64)
+    provider: str | None = Field(default=None, max_length=64)
 
 
 class PaymentRead(PaymentPayload):
@@ -90,8 +90,8 @@ class ExchangePayload(BaseModel):
     medicine_id: int
     quantity: int = Field(gt=0)
     asking_price: float = Field(default=0, ge=0)
-    listing_type: str = "offer"
-    notes: str | None = None
+    listing_type: str = Field(default="offer", min_length=2, max_length=32)
+    notes: str | None = Field(default=None, max_length=500)
 
 
 class ExchangeRead(ExchangePayload):

@@ -94,6 +94,24 @@ The system never claims that synthetic stock, supplier contact details, prices, 
 
     The local demo can use SQLite, but the submitted/deployed configuration is PostgreSQL 16. Set `DATABASE_URL` from `.env.example` before starting the backend. The database stores no real patient records; the supplied catalogue, suppliers, stock and consumption history are realistic synthetic hospital-operational data.
 
+    ### Production Docker deployment
+
+    1. Copy `.env.production.example` to `.env.production` and replace every placeholder, especially `POSTGRES_PASSWORD`, `DATABASE_URL`, `SECRET_KEY`, `CORS_ORIGINS`, and `VITE_API_BASE_URL`.
+    2. Run `docker compose --env-file .env.production -f docker-compose.production.yml up -d --build`.
+    3. Verify `GET https://api.example.com/health` and open the frontend host. The backend container waits for PostgreSQL health before starting.
+    4. Run migrations from the repository root with `alembic -c backend/alembic.ini upgrade head` using the same production environment. The initial revision is in `backend/alembic/versions/`.
+    5. Create backups with `.\scripts\backup_postgres.ps1` and restore only after taking a current backup: `.\scripts\restore_postgres.ps1 -BackupFile .\backups\pharmacy-YYYYMMDD-HHMMSS.dump -Confirm`.
+
+    The production compose file is intentionally separate from the local demo compose file. Put TLS termination, domain routing, and secret storage in the hosting platform or reverse proxy rather than committing certificates or passwords.
+
+    ### Test commands
+
+    - Backend: `.\.venv\Scripts\python.exe -m pytest backend/tests`
+    - Frontend: `Set-Location frontend; npm test`
+    - Frontend build: `Set-Location frontend; npm run build`
+
+    Backend tests cover health/authentication contracts, validation boundaries, password/token behavior, and the rate-limit contract. Frontend tests cover the expiry-risk classification used by the operations UI. Add endpoint-specific cases alongside new routes before production changes.
+
     ### Backups, health checks, and tests
 
     - Run `.\scripts\backup_postgres.ps1` with `DATABASE_URL` set to create a timestamped PostgreSQL dump in `backups/`.

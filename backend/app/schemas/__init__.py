@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class UserRead(BaseModel):
@@ -17,11 +17,11 @@ class UserRead(BaseModel):
 
 
 class PharmacyCreate(BaseModel):
-    name: str
-    hospital_name: str | None = None
-    licence_number: str | None = None
-    address: str | None = None
-    country: str | None = None
+    name: str = Field(min_length=2, max_length=128)
+    hospital_name: str | None = Field(default=None, max_length=128)
+    licence_number: str | None = Field(default=None, max_length=64)
+    address: str | None = Field(default=None, max_length=500)
+    country: str | None = Field(default=None, max_length=64)
 
 
 class PharmacyRead(PharmacyCreate):
@@ -30,31 +30,31 @@ class PharmacyRead(PharmacyCreate):
 
 
 class PharmacyRegistration(PharmacyCreate):
-    admin_username: str
-    admin_full_name: str
-    admin_email: str | None = None
+    admin_username: str = Field(min_length=3, max_length=64)
+    admin_full_name: str = Field(min_length=2, max_length=128)
+    admin_email: str | None = Field(default=None, max_length=128)
     admin_password: str = Field(min_length=8)
 
 
 class UserCreate(BaseModel):
-    username: str
-    full_name: str
-    email: str | None = None
-    role: str
+    username: str = Field(min_length=3, max_length=64)
+    full_name: str = Field(min_length=2, max_length=128)
+    email: str | None = Field(default=None, max_length=128)
+    role: str = Field(pattern="^(admin|pharmacist)$")
     password: str = Field(min_length=8)
     pharmacy_id: int | None = None
 
 
 class UserUpdate(BaseModel):
-    full_name: str | None = None
-    email: str | None = None
-    role: str | None = None
+    full_name: str | None = Field(default=None, min_length=2, max_length=128)
+    email: str | None = Field(default=None, max_length=128)
+    role: str | None = Field(default=None, pattern="^(admin|pharmacist)$")
     password: str | None = Field(default=None, min_length=8)
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1, max_length=64)
+    password: str = Field(min_length=1, max_length=256)
 
 
 class LoginResponse(BaseModel):
@@ -190,23 +190,23 @@ class MedicineRead(BaseModel):
 
 
 class MedicineCreate(BaseModel):
-    name: str
-    sku: str
-    category: str
-    unit: str
-    reorder_level: int = 25
-    ideal_stock: int = 100
+    name: str = Field(min_length=2, max_length=128)
+    sku: str = Field(min_length=2, max_length=64)
+    category: str = Field(min_length=2, max_length=64)
+    unit: str = Field(min_length=1, max_length=16)
+    reorder_level: int = Field(default=25, ge=0, le=1_000_000)
+    ideal_stock: int = Field(default=100, ge=0, le=1_000_000)
     active: bool = True
     description: str | None = None
 
 
 class MedicineUpdate(BaseModel):
-    name: str | None = None
-    sku: str | None = None
-    category: str | None = None
-    unit: str | None = None
-    reorder_level: int | None = None
-    ideal_stock: int | None = None
+    name: str | None = Field(default=None, min_length=2, max_length=128)
+    sku: str | None = Field(default=None, min_length=2, max_length=64)
+    category: str | None = Field(default=None, min_length=2, max_length=64)
+    unit: str | None = Field(default=None, min_length=1, max_length=16)
+    reorder_level: int | None = Field(default=None, ge=0, le=1_000_000)
+    ideal_stock: int | None = Field(default=None, ge=0, le=1_000_000)
     active: bool | None = None
     description: str | None = None
 
@@ -233,38 +233,50 @@ class BatchRead(BaseModel):
 
 class BatchCreate(BaseModel):
     medicine_id: int
-    batch_number: str
-    supplier: str
-    quantity: int
-    unit_price: float = 50.0
-    recovery_unit_price: float = 0.0
+    batch_number: str = Field(min_length=1, max_length=64)
+    supplier: str = Field(min_length=2, max_length=128)
+    quantity: int = Field(ge=0, le=1_000_000)
+    unit_price: float = Field(default=50.0, ge=0)
+    recovery_unit_price: float = Field(default=0.0, ge=0)
     received_on: date
     expiry_date: date
-    location: str = "Main Store"
+    location: str = Field(default="Main Store", min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def expiry_follows_receipt(self):
+        if self.expiry_date <= self.received_on:
+            raise ValueError("expiry_date must be after received_on")
+        return self
 
 
 class BatchUpdate(BaseModel):
     medicine_id: int | None = None
-    batch_number: str | None = None
-    supplier: str | None = None
-    quantity: int | None = None
-    unit_price: float | None = None
-    recovery_unit_price: float | None = None
+    batch_number: str | None = Field(default=None, min_length=1, max_length=64)
+    supplier: str | None = Field(default=None, min_length=2, max_length=128)
+    quantity: int | None = Field(default=None, ge=0, le=1_000_000)
+    unit_price: float | None = Field(default=None, ge=0)
+    recovery_unit_price: float | None = Field(default=None, ge=0)
     received_on: date | None = None
     expiry_date: date | None = None
     location: str | None = None
 
+    @model_validator(mode="after")
+    def valid_dates_when_both_present(self):
+        if self.received_on is not None and self.expiry_date is not None and self.expiry_date <= self.received_on:
+            raise ValueError("expiry_date must be after received_on")
+        return self
+
 
 class EquipmentCreate(BaseModel):
-    name: str
-    asset_number: str
-    equipment_type: str
-    waste_category: str
-    quantity: int
-    unit: str = "piece"
+    name: str = Field(min_length=2, max_length=128)
+    asset_number: str = Field(min_length=1, max_length=64)
+    equipment_type: str = Field(min_length=2, max_length=64)
+    waste_category: str = Field(min_length=2, max_length=64)
+    quantity: int = Field(ge=0, le=1_000_000)
+    unit: str = Field(default="piece", min_length=1, max_length=16)
     expiry_date: date | None = None
-    condition: str = "usable"
-    location: str = "Main Store"
+    condition: str = Field(default="usable", min_length=2, max_length=32)
+    location: str = Field(default="Main Store", min_length=1, max_length=64)
 
 
 class EquipmentRead(EquipmentCreate):
@@ -286,11 +298,11 @@ class EquipmentUpdate(BaseModel):
 
 
 class WastePickupCreate(BaseModel):
-    vendor_name: str
-    vendor_contact: str
+    vendor_name: str = Field(min_length=2, max_length=128)
+    vendor_contact: str = Field(min_length=2, max_length=128)
     scheduled_date: date
-    waste_category: str
-    item_summary: str
+    waste_category: str = Field(min_length=2, max_length=64)
+    item_summary: str = Field(min_length=2, max_length=500)
     notes: str | None = None
 
 
@@ -311,8 +323,8 @@ class WastePickupUpdate(BaseModel):
 
 
 class DisposalRequest(BaseModel):
-    method: str
-    pickup_contact: str
+    method: str = Field(min_length=2, max_length=64)
+    pickup_contact: str = Field(min_length=2, max_length=128)
     pickup_date: date | None = None
     note: str | None = None
 
@@ -328,7 +340,7 @@ class DepartmentInventoryRead(BaseModel):
 
 
 class CollectionConfirmation(BaseModel):
-    handover_reference: str
+    handover_reference: str = Field(min_length=2, max_length=64)
     note: str | None = None
 
 
@@ -348,17 +360,17 @@ class SMTPTestRequest(BaseModel):
 
 
 class DispenseRequest(BaseModel):
-    lookup: str
-    quantity: int
-    department: str
+    lookup: str = Field(min_length=1, max_length=128)
+    quantity: int = Field(gt=0, le=1_000_000)
+    department: str = Field(min_length=2, max_length=64)
     note: str | None = None
 
 
 class SaleCreate(BaseModel):
-    lookup: str
-    quantity: int
-    buyer_name: str
-    buyer_phone: str | None = None
+    lookup: str = Field(min_length=1, max_length=128)
+    quantity: int = Field(gt=0, le=1_000_000)
+    buyer_name: str = Field(min_length=2, max_length=128)
+    buyer_phone: str | None = Field(default=None, max_length=24)
 
 
 class SaleInvoiceRead(BaseModel):

@@ -6,7 +6,7 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -63,7 +63,16 @@ from app.schemas import (
     WastePickupRead,
     WastePickupUpdate,
 )
-from app.services.auth import create_access_token, get_current_user, hash_password, require_roles, verify_password
+from app.services.auth import (
+    check_login_rate_limit,
+    clear_login_failures,
+    create_access_token,
+    get_current_user,
+    hash_password,
+    record_login_failure,
+    require_roles,
+    verify_password,
+)
 from app.services.forecast import forecast_consumption
 from app.services.email_notifications import send_procurement_email
 from app.services.seed import add_who_starter_catalogue
@@ -160,10 +169,14 @@ def _notify_critical_stock(*, db: Session, medicine: Medicine, previous_total: i
 
 
 @router.post("/auth/login", response_model=LoginResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+def login(request: Request, payload: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+    client_key = request.client.host if request.client else "unknown"
+    check_login_rate_limit(client_key)
     user = db.query(User).filter(User.username == payload.username).first()
     if not user or not verify_password(user.password, payload.password):
+        record_login_failure(client_key)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    clear_login_failures(client_key)
     token = create_access_token(user.username, user.role)
     return LoginResponse(access_token=token, user=UserRead.model_validate(user))
 

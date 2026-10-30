@@ -23,9 +23,9 @@ type User = {
 };
 
 type UserFormState = { id?: number; username: string; full_name: string; email: string; role: string; password: string };
-type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'business' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement';
+type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'business' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement' | 'audit';
 
-const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'business', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement'];
+const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'business', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement', 'audit'];
 const translations = {
     en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', expiry: 'Expiry & waste', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
     hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', expiry: 'समाप्ति व अपशिष्ट', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
@@ -155,6 +155,7 @@ type ExchangeListing = { id: number; pharmacy_id: number; medicine_id: number; q
 type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null };
 type Equipment = { id: number; name: string; asset_number: string; equipment_type: string; waste_category: string; quantity: number; unit: string; expiry_date?: string | null; condition: string; waste_status: string; location: string };
 type WastePickup = { id: number; pickup_number: string; vendor_name: string; vendor_contact: string; scheduled_date: string; waste_category: string; item_summary: string; status: string; manifest_number?: string | null; certificate_reference?: string | null; notes?: string | null };
+type AuditLog = { id: number; action_time: string; actor_username: string; pharmacy_id: number | null; action: string; entity_name: string; entity_id: number; description: string };
 
 type SmtpStatus = { configured: boolean; host: string; port: number; use_tls: boolean; username_configured: boolean; from_email: string };
 
@@ -313,7 +314,7 @@ async function downloadFile(path: string, token: string | null) {
     URL.revokeObjectURL(url);
 }
 
-function getExpirySnapshot(expiryDate: string, disposalStatus?: string) {
+export function getExpirySnapshot(expiryDate: string, disposalStatus?: string) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const expiry = new Date(`${expiryDate}T00:00:00`);
@@ -367,6 +368,7 @@ export default function App() {
     const [insights, setInsights] = useState<Insight | null>(null);
     const [users, setUsers] = useState<User[]>([]);
     const [procurementRequests, setProcurementRequests] = useState<ProcurementRequest[]>([]);
+    const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
     const [smtpStatus, setSmtpStatus] = useState<SmtpStatus | null>(null);
     const [smtpRecipient, setSmtpRecipient] = useState('');
     const [smtpSubject, setSmtpSubject] = useState('Pharmacy communication test');
@@ -524,9 +526,10 @@ export default function App() {
             setCategories(categoriesData);
             setInsights(insightsData);
             if (currentUser?.role === 'admin') {
-                const [usersData, requestsData] = await Promise.all([apiRequest<User[]>('/users', token), apiRequest<ProcurementRequest[]>('/procurement/requests', token)]);
+                const [usersData, requestsData, auditData] = await Promise.all([apiRequest<User[]>('/users', token), apiRequest<ProcurementRequest[]>('/procurement/requests', token), apiRequest<AuditLog[]>('/audit-logs', token)]);
                 setUsers(usersData);
                 setProcurementRequests(requestsData);
+                setAuditLogs(auditData);
             }
             setSelectedMedicineId((previous) => previous ?? medicines[0]?.id ?? null);
             if (!editingMedicineId && medicines[0]) {
@@ -1030,6 +1033,7 @@ export default function App() {
         { page: 'reference', label: 'Storage map', icon: '◌', roles: ['admin', 'pharmacist'] },
         { page: 'users', label: t.users, icon: '♙', roles: ['admin'] },
         { page: 'procurement', label: 'Procurement', icon: '✉', roles: ['admin'] },
+        { page: 'audit', label: 'Audit log', icon: '⌁', roles: ['admin'] },
         { page: 'reports', label: t.reports, icon: '▤', roles: ['admin', 'pharmacist'] },
     ];
 
@@ -1605,6 +1609,23 @@ export default function App() {
                                 <button className="report-card" onClick={() => downloadFile('/reports/inventory.csv', token)}>Inventory CSV</button>
                                 <button className="report-card" onClick={() => downloadFile('/reports/alerts.csv', token)}>Alerts CSV</button>
                                 <button className="report-card" onClick={() => downloadFile('/reports/alerts.pdf', token)}>Alerts PDF</button>
+                            </div>
+                        </div>
+                    </section>
+                )}
+
+                {activeTab === 'audit' && currentUser.role === 'admin' && (
+                    <section className="workspace-grid single-column">
+                        <div className="panel">
+                            <div className="panel-header">
+                                <div><div className="section-title">Accountability</div><h3>Pharmacy audit log</h3><p className="muted">Tenant-scoped records of stock, expiry, communication, and procurement actions.</p></div>
+                                <span className="recommendation">{auditLogs.length} events</span>
+                            </div>
+                            <div className="table-scroll">
+                                <table className="data-table"><thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Entity</th><th>Details</th></tr></thead><tbody>
+                                    {auditLogs.map((log) => <tr key={log.id}><td>{new Date(log.action_time).toLocaleString()}</td><td>{log.actor_username}</td><td><strong>{log.action}</strong></td><td>{log.entity_name} #{log.entity_id}</td><td>{log.description}</td></tr>)}
+                                    {!auditLogs.length && <tr><td colSpan={5}>No audit events have been recorded for this pharmacy yet.</td></tr>}
+                                </tbody></table>
                             </div>
                         </div>
                     </section>

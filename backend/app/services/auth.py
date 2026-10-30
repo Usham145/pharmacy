@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import threading
 import time
 from dataclasses import dataclass
 
@@ -17,6 +18,34 @@ from app.models.entities import User
 
 settings = get_settings()
 security = HTTPBearer(auto_error=False)
+_login_attempts: dict[str, list[float]] = {}
+_login_attempts_lock = threading.Lock()
+_LOGIN_WINDOW_SECONDS = 60
+_LOGIN_MAX_FAILURES = 5
+
+
+def check_login_rate_limit(client_key: str) -> None:
+    now = time.monotonic()
+    with _login_attempts_lock:
+        recent = [timestamp for timestamp in _login_attempts.get(client_key, []) if now - timestamp < _LOGIN_WINDOW_SECONDS]
+        _login_attempts[client_key] = recent
+        if len(recent) >= _LOGIN_MAX_FAILURES:
+            retry_after = max(1, int(_LOGIN_WINDOW_SECONDS - (now - recent[0])))
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed login attempts. Try again later.",
+                headers={"Retry-After": str(retry_after)},
+            )
+
+
+def record_login_failure(client_key: str) -> None:
+    with _login_attempts_lock:
+        _login_attempts.setdefault(client_key, []).append(time.monotonic())
+
+
+def clear_login_failures(client_key: str) -> None:
+    with _login_attempts_lock:
+        _login_attempts.pop(client_key, None)
 
 
 def _urlsafe_b64encode(raw: bytes) -> str:
