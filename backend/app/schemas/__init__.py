@@ -352,6 +352,14 @@ class DepartmentInventoryRead(BaseModel):
     updated_at: datetime
 
 
+class DepartmentUsageRequest(BaseModel):
+    department: str = Field(min_length=2, max_length=64)
+    medicine_id: int = Field(gt=0)
+    batch_number: str = Field(min_length=1, max_length=64)
+    quantity: int = Field(gt=0)
+    note: str | None = Field(default=None, max_length=500)
+
+
 class CollectionConfirmation(BaseModel):
     handover_reference: str = Field(min_length=2, max_length=64)
     note: str | None = None

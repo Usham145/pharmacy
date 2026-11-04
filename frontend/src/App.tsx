@@ -797,6 +797,37 @@ export default function App() {
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Dispensing failed'); }
     }
 
+    async function useDepartmentStock(item: DepartmentInventory) {
+        if (!token || item.quantity <= 0) return;
+        const quantity = window.prompt(`How many ${item.medicine_name} units were used in ${item.department}?`, '1');
+        if (!quantity || !/^[1-9]\d*$/.test(quantity)) {
+            setStatus('Enter a whole number greater than zero');
+            return;
+        }
+        const requestedQuantity = Number(quantity);
+        if (requestedQuantity > item.quantity) {
+            setStatus(`Only ${item.quantity} units are available in ${item.department}`);
+            return;
+        }
+        const note = window.prompt('Usage note (optional):', '') || null;
+        try {
+            await apiRequest<DepartmentInventory>('/department-inventory/use', token, {
+                method: 'POST',
+                body: JSON.stringify({
+                    department: item.department,
+                    medicine_id: item.medicine_id,
+                    batch_number: item.batch_number,
+                    quantity: requestedQuantity,
+                    note,
+                }),
+            });
+            await loadWorkspace(selectedMedicineId);
+            setStatus(`${requestedQuantity} ${item.medicine_name} units used in ${item.department}; stock updated`);
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : 'Department stock update failed');
+        }
+    }
+
     async function sellMedicine() {
         if (!token || !buyerName.trim()) { setStatus('Enter the buyer name before generating the bill'); return; }
         if (!saleLookup.trim()) { setStatus('Select an available medicine or batch before generating the bill'); return; }
@@ -1789,7 +1820,79 @@ export default function App() {
                     </section>
                 )}
 
-                {activeTab === 'finance' && dashboardData && <section className="workspace-grid"><div className="panel"><div className="section-title">Sales record</div><h3>Retail sales of this pharmacy</h3><div className="stats-grid compact-grid"><StatCard label="Sales total" value={`₹${(financials?.sales_total ?? 0).toLocaleString()}`} tone="teal" /><StatCard label="Bills generated" value={financials?.sales_count ?? 0} tone="blue" /></div><p className="muted">Every completed sale has an itemised buyer bill and is included in this total.</p></div><div className="panel"><div className="section-title">Purchase record</div><h3>Supplier orders of this pharmacy</h3><div className="stats-grid compact-grid"><StatCard label="Purchase total" value={`₹${(financials?.purchases_total ?? 0).toLocaleString()}`} tone="gold" /><StatCard label="Purchase orders" value={financials?.purchase_count ?? 0} tone="red" /></div><table className="data-table"><thead><tr><th>Order</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead><tbody>{purchaseOrders.map(order => <tr key={order.id}><td>{order.po_number}</td><td>{order.supplier_name}</td><td>{order.order_date}</td><td>₹{order.total_amount.toLocaleString()}</td><td>{order.status}</td></tr>)}</tbody></table></div></section>}
+                {activeTab === 'finance' && dashboardData && (
+                    <section className="finance-page">
+                        <div className="panel finance-intro">
+                            <div>
+                                <div className="section-title">Finance centre</div>
+                                <h3>Sales in, purchases out — clearly separated</h3>
+                                <p className="muted">Track money received from buyers separately from supplier commitments and orders.</p>
+                            </div>
+                            <div className="finance-updated">Live pharmacy totals</div>
+                        </div>
+
+                        <div className="finance-summary">
+                            <StatCard label="Sales received" value={`₹${(financials?.sales_total ?? 0).toLocaleString()}`} tone="teal" />
+                            <StatCard label="Bills issued" value={financials?.sales_count ?? 0} tone="blue" />
+                            <StatCard label="Purchase committed" value={`₹${(financials?.purchases_total ?? 0).toLocaleString()}`} tone="gold" />
+                            <StatCard label="Supplier orders" value={financials?.purchase_count ?? 0} tone="red" />
+                        </div>
+
+                        <div className="finance-ledgers">
+                            <div className="panel finance-ledger">
+                                <div className="panel-header">
+                                    <div>
+                                        <div className="section-title">Sales ledger</div>
+                                        <h3>Money received from customers</h3>
+                                    </div>
+                                    <strong className="ledger-total">₹{(financials?.sales_total ?? 0).toLocaleString()}</strong>
+                                </div>
+                                {latestBill ? (
+                                    <div className="finance-highlight">
+                                        <span className="finance-highlight-icon">₹</span>
+                                        <div>
+                                            <strong>{latestBill.invoice_number}</strong>
+                                            <span>{latestBill.medicine_name} · {latestBill.buyer_name}</span>
+                                            <small>{new Date(latestBill.sold_at).toLocaleString()} · {latestBill.quantity} units</small>
+                                        </div>
+                                        <b>₹{latestBill.total_amount.toLocaleString()}</b>
+                                    </div>
+                                ) : (
+                                    <div className="empty-state">No sales recorded yet. Completed customer bills will appear here.</div>
+                                )}
+                                <button className="secondary inline" onClick={() => navigate('sales')}>Open sales & billing</button>
+                            </div>
+
+                            <div className="panel finance-ledger">
+                                <div className="panel-header">
+                                    <div>
+                                        <div className="section-title">Purchase ledger</div>
+                                        <h3>Supplier orders and commitments</h3>
+                                    </div>
+                                    <strong className="ledger-total purchase">₹{(financials?.purchases_total ?? 0).toLocaleString()}</strong>
+                                </div>
+                                <div className="table-scroll">
+                                    <table className="data-table">
+                                        <thead><tr><th>Order</th><th>Supplier</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+                                        <tbody>
+                                            {purchaseOrders.map((order) => (
+                                                <tr key={order.id}>
+                                                    <td><strong>{order.po_number}</strong></td>
+                                                    <td>{order.supplier_name}</td>
+                                                    <td>{order.order_date}</td>
+                                                    <td className="amount-purchase">₹{order.total_amount.toLocaleString()}</td>
+                                                    <td><span className="status-label">{order.status}</span></td>
+                                                </tr>
+                                            ))}
+                                            {!purchaseOrders.length && <tr><td colSpan={5}>No supplier orders recorded yet.</td></tr>}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <button className="secondary inline" onClick={() => navigate('procurement')}>Open procurement</button>
+                            </div>
+                        </div>
+                    </section>
+                )}
 
                 {activeTab === 'business' && (
                     <section className="workspace-grid">
@@ -1861,7 +1964,7 @@ export default function App() {
                                 {selectedDepartmentSummary.stock.length ? <div className="department-stock-grid">{selectedDepartmentSummary.stock.map((item) => {
                                     const batch = dashboardData.batches.find((entry) => entry.batch_number === item.batch_number);
                                     const expired = batch && new Date(batch.expiry_date) < new Date();
-                                    return <article className="department-stock-card" key={item.id}><div><span className="section-title">READY TO USE</span><h3>{item.medicine_name}</h3><p>Batch {item.batch_number}</p></div><strong>{item.quantity}</strong><small>units · expires {batch?.expiry_date ?? 'not available'}</small>{expired && batch ? <button className="ghost danger" onClick={() => emailSupplierForReturn(batch)}>Email supplier for return</button> : <span className="ready-badge">Available in department</span>}</article>;
+                                    return <article className="department-stock-card" key={item.id}><div><span className="section-title">READY TO USE</span><h3>{item.medicine_name}</h3><p>Batch {item.batch_number}</p></div><strong>{item.quantity}</strong><small>units · expires {batch?.expiry_date ?? 'not available'}</small>{expired && batch ? <button className="ghost danger" onClick={() => emailSupplierForReturn(batch)}>Email supplier for return</button> : <><span className="ready-badge">Available in department</span><button className="secondary inline" onClick={() => useDepartmentStock(item)} disabled={!canEdit}>Record medicine use</button></>}</article>;
                                 })}</div> : <div className="department-empty"><strong>No medicine issued yet</strong><p>Use FEFO Dispensing, select {selectedDepartmentSummary.name}, and issue a batch to add ready-to-use stock here.</p><button className="primary inline" onClick={() => navigate('dispense')}>Open FEFO Dispensing</button></div>}
                             </div>
                         )}

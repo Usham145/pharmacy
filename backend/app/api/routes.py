@@ -43,6 +43,7 @@ from app.schemas import (
     SupplierRead,
     TransactionRead,
     DepartmentInventoryRead,
+    DepartmentUsageRequest,
     UserRead,
     UserCreate,
     UserUpdate,
@@ -548,6 +549,7 @@ def list_transactions(
     rows = (
         db.query(InventoryTransaction, Medicine.name.label("medicine_name"))
         .join(Medicine, InventoryTransaction.medicine_id == Medicine.id)
+        .filter(Medicine.pharmacy_id == current_user.pharmacy_id)
         .order_by(InventoryTransaction.transaction_date.desc(), InventoryTransaction.id.desc())
         .all()
     )
@@ -571,6 +573,68 @@ def list_transactions(
 def list_department_inventory(db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> list[DepartmentInventoryRead]:
     rows = db.query(DepartmentInventory, Medicine.name).join(Medicine, DepartmentInventory.medicine_id == Medicine.id).filter(DepartmentInventory.pharmacy_id == current_user.pharmacy_id, DepartmentInventory.quantity > 0).order_by(DepartmentInventory.department, Medicine.name).all()
     return [DepartmentInventoryRead(id=item.id, department=item.department, medicine_id=item.medicine_id, medicine_name=name, batch_number=item.batch_number, quantity=item.quantity, updated_at=item.updated_at) for item, name in rows]
+
+
+@router.post("/department-inventory/use", response_model=DepartmentInventoryRead)
+def use_department_inventory(
+    payload: DepartmentUsageRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "pharmacist")),
+) -> DepartmentInventoryRead:
+    medicine = _tenant_medicines(db, current_user).filter(Medicine.id == payload.medicine_id).first()
+    if not medicine:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")
+    stock = (
+        db.query(DepartmentInventory)
+        .filter(
+            DepartmentInventory.pharmacy_id == current_user.pharmacy_id,
+            DepartmentInventory.department == payload.department,
+            DepartmentInventory.medicine_id == payload.medicine_id,
+            DepartmentInventory.batch_number == payload.batch_number,
+        )
+        .with_for_update()
+        .first()
+    )
+    if not stock:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Department stock record not found")
+    if stock.quantity < payload.quantity:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Only {stock.quantity} units are available in {payload.department}")
+
+    stock.quantity -= payload.quantity
+    db.add(InventoryTransaction(
+        transaction_date=date.today(),
+        medicine_id=payload.medicine_id,
+        transaction_type="Department use",
+        quantity=payload.quantity,
+        reference=f"DEPT-{payload.department}-{payload.batch_number}",
+        department=payload.department,
+        note=payload.note or f"Used in {payload.department}",
+    ))
+    db.add(ConsumptionRecord(
+        medicine_id=payload.medicine_id,
+        consumed_on=date.today(),
+        quantity=payload.quantity,
+        ward=payload.department,
+    ))
+    _record_activity(
+        db,
+        current_user,
+        "department_stock_used",
+        "department_inventory",
+        stock.id,
+        f"Used {payload.quantity} units of {medicine.name} in {payload.department} from batch {payload.batch_number}",
+    )
+    db.commit()
+    db.refresh(stock)
+    return DepartmentInventoryRead(
+        id=stock.id,
+        department=stock.department,
+        medicine_id=stock.medicine_id,
+        medicine_name=medicine.name,
+        batch_number=stock.batch_number,
+        quantity=stock.quantity,
+        updated_at=stock.updated_at,
+    )
 
 
 @router.get("/purchase-orders", response_model=list[PurchaseOrderRead])
