@@ -187,6 +187,7 @@ class MedicineRead(BaseModel):
     ideal_stock: int
     active: bool
     description: str | None = None
+    created_at: datetime
 
 
 class MedicineCreate(BaseModel):
@@ -229,6 +230,18 @@ class BatchRead(BaseModel):
     disposal_method: str | None = None
     disposal_reference: str | None = None
     disposed_on: date | None = None
+    created_at: datetime
+
+
+class ActivityRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    action_time: datetime
+    action: str
+    entity_name: str
+    entity_id: int
+    description: str
 
 
 class BatchCreate(BaseModel):

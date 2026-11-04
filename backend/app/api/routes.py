@@ -21,6 +21,7 @@ from app.models.entities import BatchStock, ConsumptionRecord, DepartmentInvento
 from app.schemas import (
     CategoryRead,
     AlertRead,
+    ActivityRead,
     AuthMeResponse,
     BatchCreate,
     BatchRead,
@@ -84,6 +85,26 @@ router = APIRouter()
 
 def _tenant_medicines(db: Session, user: User):
     return db.query(Medicine).filter(Medicine.pharmacy_id == user.pharmacy_id)
+
+
+def _record_activity(
+    db: Session,
+    user: User,
+    action: str,
+    entity_name: str,
+    entity_id: int,
+    description: str,
+) -> None:
+    db.add(
+        AuditLog(
+            actor_username=user.username,
+            pharmacy_id=user.pharmacy_id,
+            action=action,
+            entity_name=entity_name,
+            entity_id=entity_id,
+            description=description,
+        )
+    )
 
 
 def _refresh_equipment_waste_status(db: Session, pharmacy_id: int) -> None:
@@ -317,6 +338,8 @@ def create_medicine(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="SKU already exists")
     medicine = Medicine(**payload.model_dump(), pharmacy_id=current_user.pharmacy_id)
     db.add(medicine)
+    db.flush()
+    _record_activity(db, current_user, "medicine_added", "medicine", medicine.id, f"Added medicine {medicine.name} ({medicine.sku})")
     db.commit()
     db.refresh(medicine)
     return MedicineRead.model_validate(medicine)
@@ -341,6 +364,7 @@ def update_medicine(
 
     for field, value in update_data.items():
         setattr(medicine, field, value)
+    _record_activity(db, current_user, "medicine_updated", "medicine", medicine.id, f"Updated medicine {medicine.name} ({medicine.sku})")
     db.commit()
     db.refresh(medicine)
     return MedicineRead.model_validate(medicine)
@@ -356,6 +380,7 @@ def delete_medicine(
     if not medicine:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")
     db.delete(medicine)
+    _record_activity(db, current_user, "medicine_deleted", "medicine", medicine.id, f"Deleted medicine {medicine.name} ({medicine.sku})")
     db.commit()
     return {"detail": "Medicine deleted"}
 
@@ -430,6 +455,7 @@ def list_batches(
             disposal_method=batch.disposal_method,
             disposal_reference=batch.disposal_reference,
             disposed_on=batch.disposed_on,
+            created_at=datetime.combine(batch.received_on, datetime.min.time()),
         )
         for batch, medicine_name in rows
     ]
@@ -660,7 +686,11 @@ def approve_and_send_procurement_request(
         body=f"Dear supplier,\n\nPlease supply the following medicines to the hospital.\n\n{order_text}\n\nEstimated total: INR {request.estimated_total:,.2f}\n\nRegards,\nArogyaMitra Hospital Pharmacy",
     )
     if not sent:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="SMTP is not configured. The order has not been sent.")
+        if not settings.smtp_host or not settings.smtp_from_email:
+            detail = "SMTP is not configured. The order has not been sent."
+        else:
+            detail = "SMTP delivery failed. Verify the SMTP host, port, credentials, and TLS settings; the order has not been sent."
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail)
     request.status = "sent"
     request.sent_at = datetime.utcnow()
     po = PurchaseOrder(po_number=request.request_number.replace("PR-", "PO-"), supplier_name=request.supplier_name, order_date=date.today(), total_amount=request.estimated_total, status="Sent", pharmacy_id=current_user.pharmacy_id)
@@ -691,6 +721,21 @@ def list_audit_logs(
     ]
 
 
+@router.get("/activity", response_model=list[ActivityRead])
+def list_activity(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("admin", "pharmacist")),
+) -> list[ActivityRead]:
+    logs = (
+        db.query(AuditLog)
+        .filter(AuditLog.pharmacy_id == current_user.pharmacy_id)
+        .order_by(AuditLog.action_time.desc(), AuditLog.id.desc())
+        .limit(20)
+        .all()
+    )
+    return [ActivityRead.model_validate(log) for log in logs]
+
+
 @router.post("/batches", response_model=BatchRead, status_code=status.HTTP_201_CREATED)
 def create_batch(
     payload: BatchCreate,
@@ -702,6 +747,8 @@ def create_batch(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Medicine not found")
     batch = BatchStock(**payload.model_dump())
     db.add(batch)
+    db.flush()
+    _record_activity(db, current_user, "batch_added", "batch", batch.id, f"Added batch {batch.batch_number} for {medicine.name}")
     db.commit()
     db.refresh(batch)
     return BatchRead(
@@ -720,6 +767,7 @@ def create_batch(
         disposal_method=batch.disposal_method,
         disposal_reference=batch.disposal_reference,
         disposed_on=batch.disposed_on,
+        created_at=datetime.combine(batch.received_on, datetime.min.time()),
     )
 
 
@@ -742,6 +790,7 @@ def update_batch(
 
     for field, value in update_data.items():
         setattr(batch, field, value)
+    _record_activity(db, current_user, "batch_updated", "batch", batch.id, f"Updated batch {batch.batch_number}")
     db.commit()
     db.refresh(batch)
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
@@ -761,6 +810,7 @@ def update_batch(
         disposal_method=batch.disposal_method,
         disposal_reference=batch.disposal_reference,
         disposed_on=batch.disposed_on,
+        created_at=datetime.combine(batch.received_on, datetime.min.time()),
     )
 
 
@@ -774,6 +824,7 @@ def delete_batch(
     if not batch:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Batch not found")
     db.delete(batch)
+    _record_activity(db, current_user, "batch_deleted", "batch", batch.id, f"Deleted batch {batch.batch_number}")
     db.commit()
     return {"detail": "Batch deleted"}
 
@@ -800,7 +851,7 @@ def request_expiry_collection(
     db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="expired_stock_collection_requested", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: {payload.method}; contact {payload.pickup_contact}; planned pickup {payload.pickup_date or 'not set'}; {payload.note or ''}"))
     db.commit()
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
-    return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
+    return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on, created_at=datetime.combine(batch.received_on, datetime.min.time()))
 
 
 @router.post("/batches/{batch_id}/confirm-collection", response_model=BatchRead)
@@ -823,7 +874,7 @@ def confirm_expiry_collection(
     db.add(AuditLog(actor_username=current_user.username, pharmacy_id=current_user.pharmacy_id, action="expired_stock_collected", entity_name="batch", entity_id=batch.id, description=f"{batch.batch_number}: collected through {batch.disposal_method}; manifest {batch.disposal_reference}"))
     db.commit()
     medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
-    return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
+    return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier, quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine.name if medicine else None, disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on, created_at=datetime.combine(batch.received_on, datetime.min.time()))
 
 
 @router.post("/batches/{batch_id}/email-supplier-return")
@@ -955,7 +1006,7 @@ def dispense_fefo(
     medicine_name = db.query(Medicine.name).filter(Medicine.id == batch.medicine_id).scalar()
     return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier,
         quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine_name,
-        disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on)
+        disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on, created_at=datetime.combine(batch.received_on, datetime.min.time()))
 
 
 @router.post("/sales", response_model=SaleInvoiceRead, status_code=status.HTTP_201_CREATED)

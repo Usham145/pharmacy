@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import smtplib
+import logging
 from email.message import EmailMessage
 
 from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _build_message(*, recipient: str, subject: str, body: str) -> EmailMessage:
@@ -22,12 +25,16 @@ def send_email_notification(*, recipient: str, subject: str, body: str) -> bool:
     if not recipient or not settings.smtp_host or not settings.smtp_from_email:
         return False
     message = _build_message(recipient=recipient, subject=subject, body=body)
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
-        if settings.smtp_use_tls:
-            server.starttls()
-        if settings.smtp_username:
-            server.login(settings.smtp_username, settings.smtp_password)
-        server.send_message(message)
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as server:
+            if settings.smtp_use_tls:
+                server.starttls()
+            if settings.smtp_username:
+                server.login(settings.smtp_username, settings.smtp_password)
+            server.send_message(message)
+    except (OSError, smtplib.SMTPException):
+        logger.exception("SMTP notification delivery failed for recipient %s", recipient)
+        return False
     return True
 
 

@@ -42,6 +42,7 @@ type Medicine = {
     ideal_stock: number;
     active: boolean;
     description?: string | null;
+    created_at: string;
 };
 
 type Supplier = {
@@ -139,7 +140,9 @@ type Batch = {
     disposal_method?: string | null;
     disposal_reference?: string | null;
     disposed_on?: string | null;
+    created_at: string;
 };
+type Activity = { id: number; action_time: string; action: string; entity_name: string; entity_id: number; description: string };
 type ExpiryBand = 'green' | 'yellow' | 'red' | 'black';
 type ExpiryBatch = Batch & { daysLeft: number; expiryBand: ExpiryBand; expiryLabel: string };
 type ExpirySupplier = { supplier: string; totalBatches: number; expiredBatches: number; nearExpiryBatches: number; totalQuantity: number; nextExpiry: string | null };
@@ -242,6 +245,7 @@ type DashboardData = {
     purchaseOrders: PurchaseOrder[];
     transactions: Transaction[];
     categories: Category[];
+    activities: Activity[];
 };
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://127.0.0.1:8000/api/v1';
@@ -288,7 +292,14 @@ async function apiRequest<T>(path: string, token: string | null, init?: RequestI
 
     if (!response.ok) {
         const message = await response.text();
-        throw new Error(message || `Request failed with status ${response.status}`);
+        let detail: string | undefined;
+        try {
+            const parsed = JSON.parse(message) as { detail?: string };
+            detail = parsed.detail;
+        } catch {
+            detail = undefined;
+        }
+        throw new Error(detail || message || `Request failed with status ${response.status}`);
     }
 
     if (response.status === 204) {
@@ -345,6 +356,8 @@ export default function App() {
     const [authUsername, setAuthUsername] = useState('admin');
     const [authPassword, setAuthPassword] = useState('admin123');
     const [selectedMedicineId, setSelectedMedicineId] = useState<number | null>(null);
+    const [medicineSearch, setMedicineSearch] = useState('');
+    const [batchSearch, setBatchSearch] = useState('');
     const [activeTab, setActiveTab] = useState<Page>(() => {
         const page = window.location.pathname.replace(/^\//, '') as Page;
         return pageNames.includes(page) ? page : 'welcome';
@@ -435,7 +448,7 @@ export default function App() {
             if (currentUser?.role === 'platform_admin') void loadPharmacies();
             else void loadWorkspace(null);
         }
-    }, [token, selectedMedicineId, currentUser?.role, activeTab]);
+    }, [token, currentUser?.role, activeTab]);
 
     const selectedMedicine = useMemo(
         () => dashboardData?.medicines.find((medicine) => medicine.id === selectedMedicineId) ?? null,
@@ -494,8 +507,15 @@ export default function App() {
                 apiRequest<Equipment[]>('/waste/equipment', token),
                 apiRequest<WastePickup[]>('/waste/pickups', token),
             ]);
+            let activityData: Activity[] = [];
+            let activityError: string | null = null;
+            try {
+                activityData = await apiRequest<Activity[]>('/activity', token);
+            } catch (error) {
+                activityError = error instanceof Error ? `Activity feed unavailable: ${error.message}` : 'Activity feed unavailable';
+            }
             const forecast = medicines[0] ? await apiRequest<Forecast>(`/forecasts/${medicineId ?? medicines[0].id}`, token) : null;
-            setDashboardData({ summary, medicines, batches, alerts, forecast, suppliers: suppliersData, departments: departmentsData, locations: locationsData, purchaseOrders: purchaseOrdersData, transactions: transactionsData, categories: categoriesData, insights: insightsData });
+            setDashboardData({ summary, medicines, batches, alerts, forecast, suppliers: suppliersData, departments: departmentsData, locations: locationsData, purchaseOrders: purchaseOrdersData, transactions: transactionsData, categories: categoriesData, insights: insightsData, activities: activityData });
             setSuppliers(suppliersData);
             setDepartments(departmentsData);
             setLocations(locationsData);
@@ -542,7 +562,7 @@ export default function App() {
                 const refreshedForecast = await apiRequest<Forecast>(`/forecasts/${medicineId}`, token);
                 setDashboardData((previous) => previous ? { ...previous, forecast: refreshedForecast } : previous);
             }
-            setStatus('Data refreshed');
+            setStatus(activityError ?? 'Data refreshed');
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Failed to load workspace');
         } finally {
@@ -813,14 +833,17 @@ export default function App() {
             description: medicineForm.description || null,
         };
         try {
+            let savedMedicine: Medicine;
             if (editingMedicineId) {
-                await apiRequest(`/medicines/${editingMedicineId}`, token, { method: 'PUT', body: JSON.stringify(payload) });
+                savedMedicine = await apiRequest<Medicine>(`/medicines/${editingMedicineId}`, token, { method: 'PUT', body: JSON.stringify(payload) });
             } else {
-                await apiRequest('/medicines', token, { method: 'POST', body: JSON.stringify(payload) });
+                savedMedicine = await apiRequest<Medicine>('/medicines', token, { method: 'POST', body: JSON.stringify(payload) });
             }
             setMedicineForm(emptyMedicineForm);
             setEditingMedicineId(null);
-            await loadWorkspace(selectedMedicineId);
+            await loadWorkspace(savedMedicine.id);
+            setSelectedMedicineId(savedMedicine.id);
+            setBatchForm((previous) => ({ ...previous, medicine_id: String(savedMedicine.id) }));
             setStatus('Medicine saved');
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Medicine save failed');
@@ -866,7 +889,8 @@ export default function App() {
             }
             setBatchForm(emptyBatchForm);
             setEditingBatchId(null);
-            await loadWorkspace(selectedMedicineId);
+            await loadWorkspace(Number(batchForm.medicine_id));
+            setSelectedMedicineId(Number(batchForm.medicine_id));
             setStatus('Batch saved');
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Batch save failed');
@@ -915,6 +939,7 @@ export default function App() {
             received_on: batch.received_on,
             expiry_date: batch.expiry_date,
             location: batch.location,
+            recovery_unit_price: String(batch.recovery_unit_price),
         });
     }
 
@@ -922,6 +947,14 @@ export default function App() {
         .filter((batch) => batch.quantity > 0 && batch.disposal_status === 'active' && new Date(`${batch.expiry_date}T00:00:00`) >= new Date(new Date().toDateString()))
         .slice()
         .sort((left, right) => new Date(left.expiry_date).getTime() - new Date(right.expiry_date).getTime());
+    const filteredMedicines = (dashboardData?.medicines ?? []).filter((medicine) => {
+        const query = medicineSearch.trim().toLowerCase();
+        return !query || `${medicine.name} ${medicine.sku} ${medicine.category} ${medicine.description ?? ''}`.toLowerCase().includes(query);
+    });
+    const filteredBatches = (dashboardData?.batches ?? []).filter((batch) => {
+        const query = batchSearch.trim().toLowerCase();
+        return !query || `${batch.medicine_name ?? ''} ${batch.batch_number} ${batch.supplier} ${batch.location} ${batch.expiry_date}`.toLowerCase().includes(query);
+    });
     const transactionTypes = ['All', ...Array.from(new Set(transactions.map((transaction) => transaction.transaction_type)))];
     const filteredTransactions = transactions.filter((transaction) => {
         const query = transactionSearch.trim().toLowerCase();
@@ -1131,6 +1164,21 @@ export default function App() {
                             </div>
                             <div className="action-row"><button className="primary inline" onClick={() => navigate('dashboard')}>Open operations dashboard <span>→</span></button>{canEdit && <button className="secondary inline" onClick={() => navigate('dispense')}>Start dispensing</button>}</div>
                         </div>
+                        {canEdit && <div className="panel">
+                            <div className="panel-header">
+                                <div><div className="section-title">Recent activity</div><h3>Latest workspace updates</h3></div>
+                                <button className="secondary inline" onClick={() => loadWorkspace(selectedMedicineId)}>Refresh list</button>
+                            </div>
+                            <div className="activity-list">
+                                {dashboardData.activities.slice(0, 8).map((item) => (
+                                    <div className="activity-row" key={item.id}>
+                                        <span className={`activity-dot ${item.action.endsWith('deleted') ? 'deleted' : ''}`} />
+                                        <div><strong>{item.description}</strong><small>{new Date(item.action_time).toLocaleString()} · {item.action.replaceAll('_', ' ')}</small></div>
+                                    </div>
+                                ))}
+                                {!dashboardData.activities.length && <div className="empty-state">No recent activity yet. Saved medicines, received batches, orders, and other updates will appear here.</div>}
+                            </div>
+                        </div>}
                     </section>
                 )}
 
@@ -1303,6 +1351,7 @@ export default function App() {
                                 <div>
                                     <div className="section-title">Medicine CRUD</div>
                                     <h3>{editingMedicineId ? 'Edit medicine' : 'Create medicine'}</h3>
+                                    {!editingMedicineId && <p className="muted">Add the medicine catalogue record here first. Then open Batches to add stock for it.</p>}
                                 </div>
                                 <div className="recommendation">{canEdit ? 'Editable' : 'Read only'}</div>
                             </div>
@@ -1340,6 +1389,10 @@ export default function App() {
                                     <h3>Medicines and stock policy</h3>
                                 </div>
                             </div>
+                            <div className="table-toolbar">
+                                <input type="search" value={medicineSearch} onChange={(event) => setMedicineSearch(event.target.value)} placeholder="Search medicine, SKU, category, or description..." />
+                                {medicineSearch && <button className="secondary inline" onClick={() => setMedicineSearch('')}>Clear</button>}
+                            </div>
                             <table className="data-table">
                                 <thead>
                                     <tr>
@@ -1351,7 +1404,7 @@ export default function App() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {dashboardData.medicines.map((medicine) => (
+                                    {filteredMedicines.map((medicine) => (
                                         <tr key={medicine.id}>
                                             <td>{medicine.name}</td>
                                             <td>{medicine.sku}</td>
@@ -1365,6 +1418,7 @@ export default function App() {
                                             </td>
                                         </tr>
                                     ))}
+                                    {!filteredMedicines.length && <tr><td colSpan={5}>No medicines match this search.</td></tr>}
                                 </tbody>
                             </table>
                         </div>
@@ -1378,11 +1432,22 @@ export default function App() {
                                 <div>
                                     <div className="section-title">Batch CRUD</div>
                                     <h3>{editingBatchId ? 'Edit batch' : 'Create batch'}</h3>
+                                    {!editingBatchId && <p className="muted">Select a medicine already created in the Medicines page, then record its supplier batch and quantity.</p>}
                                 </div>
                                 <div className="recommendation">{canEdit ? 'Editable' : 'Read only'}</div>
                             </div>
                             <FormGrid>
-                                <Field label="Medicine" value={batchForm.medicine_id} onChange={(value) => setBatchForm((previous) => ({ ...previous, medicine_id: value }))} disabled={!canEdit} select options={dashboardData.medicines.map((medicine) => ({ label: `${medicine.name} (${medicine.sku})`, value: String(medicine.id) }))} />
+                                <Field
+                                    label="Medicine"
+                                    value={batchForm.medicine_id}
+                                    onChange={(value) => setBatchForm((previous) => ({ ...previous, medicine_id: value }))}
+                                    disabled={!canEdit}
+                                    select
+                                    options={dashboardData.medicines
+                                        .slice()
+                                        .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime())
+                                        .map((medicine) => ({ label: `${medicine.name} (${medicine.sku})`, value: String(medicine.id) }))}
+                                />
                                 <Field label="Batch number" value={batchForm.batch_number} onChange={(value) => setBatchForm((previous) => ({ ...previous, batch_number: value }))} disabled={!canEdit} />
                                 <Field label="Supplier" value={batchForm.supplier} onChange={(value) => setBatchForm((previous) => ({ ...previous, supplier: value }))} disabled={!canEdit} />
                                 <Field label="Quantity" value={batchForm.quantity} onChange={(value) => setBatchForm((previous) => ({ ...previous, quantity: value }))} disabled={!canEdit} />
@@ -1413,6 +1478,10 @@ export default function App() {
                                     <h3>Batch and expiry tracking</h3>
                                 </div>
                             </div>
+                            <div className="table-toolbar">
+                                <input type="search" value={batchSearch} onChange={(event) => setBatchSearch(event.target.value)} placeholder="Search medicine, batch, supplier, location, or expiry..." />
+                                {batchSearch && <button className="secondary inline" onClick={() => setBatchSearch('')}>Clear</button>}
+                            </div>
                             <table className="data-table">
                                 <thead>
                                     <tr>
@@ -1424,7 +1493,7 @@ export default function App() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {dashboardData.batches.map((batch) => (
+                                    {filteredBatches.map((batch) => (
                                         <tr key={batch.id}>
                                             <td>{batch.medicine_name ?? batch.medicine_id}</td>
                                             <td>{batch.batch_number}</td>
@@ -1442,6 +1511,7 @@ export default function App() {
                                             </td>
                                         </tr>
                                     ))}
+                                    {!filteredBatches.length && <tr><td colSpan={5}>No batches match this search.</td></tr>}
                                 </tbody>
                             </table>
                         </div>

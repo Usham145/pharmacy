@@ -367,6 +367,46 @@ button {
     background: var(--panel-strong);
 }
 
+.activity-list {
+    display: grid;
+    gap: 10px;
+}
+
+.activity-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.activity-row:last-child {
+    border-bottom: 0;
+}
+
+.activity-row strong,
+.activity-row small {
+    display: block;
+}
+
+.activity-row small {
+    color: var(--muted);
+    margin-top: 4px;
+}
+
+.activity-dot {
+    width: 9px;
+    height: 9px;
+    margin-top: 5px;
+    border-radius: 50%;
+    background: var(--teal);
+    flex: 0 0 auto;
+}
+
+.activity-dot.deleted {
+    background: #c65353;
+}
+
 .medicine-row {
     display: flex;
     justify-content: space-between;
