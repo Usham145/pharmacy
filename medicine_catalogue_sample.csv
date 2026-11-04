@@ -1,0 +1,11 @@
+name,sku,category,unit,reorder_level,ideal_stock,description
+Paracetamol 500mg,CSV-001,Analgesic,tablet,50,200,For fever and mild pain relief
+Amoxicillin 500mg,CSV-002,Antibiotic,capsule,30,120,Common oral antibiotic
+Omeprazole 20mg,CSV-003,Gastrointestinal,capsule,25,100,For acid reflux and gastric protection
+Cetirizine 10mg,CSV-004,Antihistamine,tablet,20,80,For allergy symptom relief
+Metformin 500mg,CSV-005,Diabetes,tablet,40,160,Oral antidiabetic medicine
+Salbutamol 100mcg,CSV-006,Respiratory,inhaler,15,60,Reliever inhaler for breathing difficulty
+Azithromycin 250mg,CSV-007,Antibiotic,tablet,20,80,Macrolide antibiotic
+Ibuprofen 400mg,CSV-008,Analgesic,tablet,30,120,For pain and inflammation
+ORS Sachet,CSV-009,Emergency,sachet,50,250,Oral rehydration salts
+Ringer Lactate 500ml,CSV-010,Fluid Therapy,bag,25,100,Intravenous fluid for clinical use
