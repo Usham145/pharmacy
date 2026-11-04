@@ -821,6 +821,9 @@ export default function App() {
                     note,
                 }),
             });
+            setDepartmentInventory((previous) => previous
+                .map((entry) => entry.id === item.id ? { ...entry, quantity: entry.quantity - requestedQuantity, updated_at: new Date().toISOString() } : entry)
+                .filter((entry) => entry.quantity > 0));
             await loadWorkspace(selectedMedicineId);
             setStatus(`${requestedQuantity} ${item.medicine_name} units used in ${item.department}; stock updated`);
         } catch (error) {
