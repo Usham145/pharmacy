@@ -47,6 +47,7 @@ from app.schemas import (
     UserRead,
     UserCreate,
     UserUpdate,
+    PlatformUserUpdate,
     DispenseRequest,
     SaleCreate,
     SaleInvoiceRead,
@@ -149,6 +150,54 @@ def create_pharmacy(payload: PharmacyRegistration, db: Session = Depends(get_db)
 @router.get("/pharmacies", response_model=list[PharmacyRead])
 def list_pharmacies(db: Session = Depends(get_db), current_user: User = Depends(require_roles("platform_admin"))) -> list[PharmacyRead]:
     return [PharmacyRead.model_validate(pharmacy) for pharmacy in db.query(Pharmacy).order_by(Pharmacy.name.asc()).all()]
+
+
+@router.put("/pharmacies/{pharmacy_id}", response_model=PharmacyRead)
+def update_pharmacy(
+    pharmacy_id: int,
+    payload: PharmacyCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("platform_admin")),
+) -> PharmacyRead:
+    pharmacy = db.query(Pharmacy).filter(Pharmacy.id == pharmacy_id).first()
+    if not pharmacy:
+        raise HTTPException(status_code=404, detail="Pharmacy workspace not found")
+    duplicate = db.query(Pharmacy).filter(Pharmacy.name == payload.name.strip(), Pharmacy.id != pharmacy_id).first()
+    if duplicate:
+        raise HTTPException(status_code=400, detail="A pharmacy with this name already exists")
+    for field, value in payload.model_dump().items():
+        setattr(pharmacy, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(pharmacy)
+    return PharmacyRead.model_validate(pharmacy)
+
+
+@router.get("/platform/users", response_model=list[UserRead])
+def list_platform_users(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("platform_admin")),
+) -> list[UserRead]:
+    return [UserRead.model_validate(user) for user in db.query(User).filter(User.role != "platform_admin").order_by(User.pharmacy_id, User.username).all()]
+
+
+@router.put("/platform/users/{user_id}", response_model=UserRead)
+def update_platform_user(
+    user_id: int,
+    payload: PlatformUserUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles("platform_admin")),
+) -> UserRead:
+    user = db.query(User).filter(User.id == user_id, User.role != "platform_admin").first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Pharmacy user not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if "password" in changes:
+        changes["password"] = hash_password(changes["password"])
+    for field, value in changes.items():
+        setattr(user, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(user)
+    return UserRead.model_validate(user)
 
 
 @router.get("/pharmacies/me", response_model=PharmacyRead)
@@ -1040,22 +1089,44 @@ def dispense_fefo(
         query = query.filter(BatchStock.medicine_id == medicine.id)
     else:
         query = query.filter(BatchStock.batch_number == lookup)
-    batch = query.order_by(BatchStock.expiry_date.asc()).with_for_update().first()
-    if not batch:
+    batches = query.order_by(BatchStock.expiry_date.asc()).with_for_update().all()
+    if not batches:
         raise HTTPException(status_code=404, detail="No usable batch found for this barcode, SKU, or batch number")
-    if batch.quantity < payload.quantity:
-        raise HTTPException(status_code=400, detail=f"Only {batch.quantity} units are available in FEFO batch {batch.batch_number}")
-    medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batch.medicine_id).first()
-    previous_total = sum(item.quantity for item in medicine.batches) if medicine else batch.quantity
-    batch.quantity -= payload.quantity
-    department_stock = db.query(DepartmentInventory).filter(DepartmentInventory.pharmacy_id == current_user.pharmacy_id, DepartmentInventory.department == payload.department, DepartmentInventory.medicine_id == batch.medicine_id, DepartmentInventory.batch_number == batch.batch_number).first()
-    if department_stock:
-        department_stock.quantity += payload.quantity
-    else:
-        db.add(DepartmentInventory(pharmacy_id=current_user.pharmacy_id, department=payload.department, medicine_id=batch.medicine_id, batch_number=batch.batch_number, quantity=payload.quantity))
+    available_quantity = sum(item.quantity for item in batches)
+    if available_quantity < payload.quantity:
+        raise HTTPException(status_code=400, detail=f"Only {available_quantity} units are available for this medicine")
+    medicine = _tenant_medicines(db, current_user).filter(Medicine.id == batches[0].medicine_id).first()
+    previous_total = available_quantity
+    remaining = payload.quantity
+    consumed_batches: list[str] = []
+    last_batch = batches[0]
+    for batch in batches:
+        if remaining <= 0:
+            break
+        issued = min(batch.quantity, remaining)
+        batch.quantity -= issued
+        remaining -= issued
+        last_batch = batch
+        consumed_batches.append(f"{batch.batch_number}:{issued}")
+        department_stock = db.query(DepartmentInventory).filter(
+            DepartmentInventory.pharmacy_id == current_user.pharmacy_id,
+            DepartmentInventory.department == payload.department,
+            DepartmentInventory.medicine_id == batch.medicine_id,
+            DepartmentInventory.batch_number == batch.batch_number,
+        ).first()
+        if department_stock:
+            department_stock.quantity += issued
+        else:
+            db.add(DepartmentInventory(
+                pharmacy_id=current_user.pharmacy_id,
+                department=payload.department,
+                medicine_id=batch.medicine_id,
+                batch_number=batch.batch_number,
+                quantity=issued,
+            ))
     db.add(InventoryTransaction(
-        transaction_date=date.today(), medicine_id=batch.medicine_id, transaction_type="Dispense",
-        quantity=payload.quantity, reference=f"FEFO-{batch.batch_number}", department=payload.department,
+        transaction_date=date.today(), medicine_id=last_batch.medicine_id, transaction_type="Dispense",
+        quantity=payload.quantity, reference=f"FEFO-{','.join(consumed_batches)}", department=payload.department,
         note=payload.note or f"Barcode/QR lookup: {lookup}",
     ))
     db.commit()
@@ -1067,10 +1138,10 @@ def dispense_fefo(
         db.rollback()
     if medicine:
         _notify_critical_stock(db=db, medicine=medicine, previous_total=previous_total, current_total=sum(item.quantity for item in medicine.batches))
-    medicine_name = db.query(Medicine.name).filter(Medicine.id == batch.medicine_id).scalar()
-    return BatchRead(id=batch.id, medicine_id=batch.medicine_id, batch_number=batch.batch_number, supplier=batch.supplier,
-        quantity=batch.quantity, unit_price=batch.unit_price, recovery_unit_price=batch.recovery_unit_price, received_on=batch.received_on, expiry_date=batch.expiry_date, location=batch.location, medicine_name=medicine_name,
-        disposal_status=batch.disposal_status, disposal_method=batch.disposal_method, disposal_reference=batch.disposal_reference, disposed_on=batch.disposed_on, created_at=datetime.combine(batch.received_on, datetime.min.time()))
+    medicine_name = db.query(Medicine.name).filter(Medicine.id == last_batch.medicine_id).scalar()
+    return BatchRead(id=last_batch.id, medicine_id=last_batch.medicine_id, batch_number=last_batch.batch_number, supplier=last_batch.supplier,
+        quantity=last_batch.quantity, unit_price=last_batch.unit_price, recovery_unit_price=last_batch.recovery_unit_price, received_on=last_batch.received_on, expiry_date=last_batch.expiry_date, location=last_batch.location, medicine_name=medicine_name,
+        disposal_status=last_batch.disposal_status, disposal_method=last_batch.disposal_method, disposal_reference=last_batch.disposal_reference, disposed_on=last_batch.disposed_on, created_at=datetime.combine(last_batch.received_on, datetime.min.time()))
 
 
 @router.post("/sales", response_model=SaleInvoiceRead, status_code=status.HTTP_201_CREATED)

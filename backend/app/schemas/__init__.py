@@ -14,6 +14,7 @@ class UserRead(BaseModel):
     email: str | None = None
     role: str
     pharmacy_id: int | None = None
+    active: bool = True
 
 
 class PharmacyCreate(BaseModel):
@@ -27,6 +28,7 @@ class PharmacyCreate(BaseModel):
 class PharmacyRead(PharmacyCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    active: bool = True
 
 
 class PharmacyRegistration(PharmacyCreate):
@@ -50,6 +52,11 @@ class UserUpdate(BaseModel):
     email: str | None = Field(default=None, max_length=128)
     role: str | None = Field(default=None, pattern="^(admin|pharmacist)$")
     password: str | None = Field(default=None, min_length=8)
+
+
+class PlatformUserUpdate(UserUpdate):
+    role: str | None = Field(default=None, pattern="^(admin|pharmacist)$")
+    active: bool | None = None
 
 
 class LoginRequest(BaseModel):

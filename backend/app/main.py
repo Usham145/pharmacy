@@ -43,6 +43,8 @@ def on_startup() -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN email VARCHAR(128)"))
         if "pharmacy_id" not in columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN pharmacy_id INTEGER"))
+        if "active" not in columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN active BOOLEAN NOT NULL DEFAULT 1"))
     batch_columns = {column["name"] for column in inspect(engine).get_columns("batch_stocks")}
     with engine.begin() as connection:
         if "unit_price" not in batch_columns:
@@ -65,6 +67,8 @@ def on_startup() -> None:
         pharmacy_columns = {column["name"] for column in inspect(engine).get_columns("pharmacies")}
         if "country" not in pharmacy_columns:
             connection.execute(text("ALTER TABLE pharmacies ADD COLUMN country VARCHAR(64)"))
+        if "active" not in pharmacy_columns:
+            connection.execute(text("ALTER TABLE pharmacies ADD COLUMN active BOOLEAN NOT NULL DEFAULT 1"))
         medicine_columns = {column["name"] for column in inspect(engine).get_columns("medicines")}
         if "reference_source" not in medicine_columns:
             connection.execute(text("ALTER TABLE medicines ADD COLUMN reference_source VARCHAR(128)"))

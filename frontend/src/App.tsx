@@ -20,6 +20,8 @@ type User = {
     full_name: string;
     email?: string | null;
     role: 'admin' | 'pharmacist' | string;
+    pharmacy_id?: number | null;
+    active: boolean;
 };
 
 type UserFormState = { id?: number; username: string; full_name: string; email: string; role: string; password: string };
@@ -155,7 +157,7 @@ type Prescription = { id: number; pharmacy_id: number; patient_name: string; doc
 type PaymentRecord = { id: number; pharmacy_id: number; reference: string; amount: number; method: string; invoice_number?: string | null; provider?: string | null; status: string };
 type ExchangeListing = { id: number; pharmacy_id: number; medicine_id: number; quantity: number; asking_price: number; listing_type: string; notes?: string | null; status: string };
 
-type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null };
+type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null; country?: string | null; active: boolean };
 type Equipment = { id: number; name: string; asset_number: string; equipment_type: string; waste_category: string; quantity: number; unit: string; expiry_date?: string | null; condition: string; waste_status: string; location: string };
 type WastePickup = { id: number; pickup_number: string; vendor_name: string; vendor_contact: string; scheduled_date: string; waste_category: string; item_summary: string; status: string; manifest_number?: string | null; certificate_reference?: string | null; notes?: string | null };
 type AuditLog = { id: number; action_time: string; actor_username: string; pharmacy_id: number | null; action: string; entity_name: string; entity_id: number; description: string };
@@ -410,6 +412,8 @@ export default function App() {
     const [exchangeListings, setExchangeListings] = useState<ExchangeListing[]>([]);
     const [businessForm, setBusinessForm] = useState({ gstin: '', legal_name: '', default_gst_rate: '0', state_code: '', customer_name: '', customer_phone: '', patient_name: '', doctor_name: '', prescription_number: '', medicine_summary: '', payment_amount: '', payment_method: 'cash', exchange_medicine_id: '', exchange_quantity: '1' });
     const [pharmacies, setPharmacies] = useState<Pharmacy[]>([]);
+    const [platformUsers, setPlatformUsers] = useState<User[]>([]);
+    const [platformPharmacyForm, setPlatformPharmacyForm] = useState({ id: 0, name: '', hospital_name: '', licence_number: '', address: '', country: '' });
     const [equipment, setEquipment] = useState<Equipment[]>([]);
     const [wastePickups, setWastePickups] = useState<WastePickup[]>([]);
     const [equipmentForm, setEquipmentForm] = useState({ name: '', asset_number: '', equipment_type: 'Medical equipment', waste_category: 'General equipment', quantity: '1', unit: 'piece', expiry_date: '', condition: 'usable', location: 'Main Store' });
@@ -448,7 +452,7 @@ export default function App() {
             if (currentUser?.role === 'platform_admin') void loadPharmacies();
             else void loadWorkspace(null);
         }
-    }, [token, currentUser?.role, activeTab]);
+    }, [token, currentUser?.role]);
 
     useEffect(() => {
         if (!token || !selectedMedicineId || !dashboardData?.medicines.some((medicine) => medicine.id === selectedMedicineId)) {
@@ -681,8 +685,49 @@ export default function App() {
 
     async function loadPharmacies() {
         if (!token) return;
-        try { setPharmacies(await apiRequest<Pharmacy[]>('/pharmacies', token)); }
+        try {
+            const [pharmacyData, userData] = await Promise.all([
+                apiRequest<Pharmacy[]>('/pharmacies', token),
+                apiRequest<User[]>('/platform/users', token),
+            ]);
+            setPharmacies(pharmacyData);
+            setPlatformUsers(userData);
+        }
         catch (error) { setStatus(error instanceof Error ? error.message : 'Could not load pharmacies'); }
+    }
+
+    async function updatePlatformPharmacy() {
+        if (!token || !platformPharmacyForm.id) return;
+        try {
+            const updated = await apiRequest<Pharmacy>(`/pharmacies/${platformPharmacyForm.id}`, token, {
+                method: 'PUT',
+                body: JSON.stringify({
+                    name: platformPharmacyForm.name,
+                    hospital_name: platformPharmacyForm.hospital_name || null,
+                    licence_number: platformPharmacyForm.licence_number || null,
+                    address: platformPharmacyForm.address || null,
+                    country: platformPharmacyForm.country || null,
+                }),
+            });
+            setPharmacies((previous) => previous.map((pharmacy) => pharmacy.id === updated.id ? updated : pharmacy));
+            setStatus(`${updated.name} details updated`);
+        } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not update pharmacy'); }
+    }
+
+    async function updatePlatformUser(user: User, changes: { active?: boolean; password?: string }) {
+        if (!token) return;
+        try {
+            const updated = await apiRequest<User>(`/platform/users/${user.id}`, token, { method: 'PUT', body: JSON.stringify(changes) });
+            setPlatformUsers((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+            setStatus(`${updated.username} account updated`);
+        } catch (error) { setStatus(error instanceof Error ? error.message : 'Could not update account'); }
+    }
+
+    async function resetPlatformUserPassword(user: User) {
+        const password = window.prompt(`New password for ${user.username} (minimum 8 characters):`, '');
+        if (!password) return;
+        if (password.length < 8) { setStatus('Password must contain at least 8 characters'); return; }
+        await updatePlatformUser(user, { password });
     }
 
     async function createPharmacy() {
@@ -809,12 +854,23 @@ export default function App() {
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Import failed'); }
     }
 
+    async function refreshStockViews() {
+        if (!token) return;
+        const [batches, inventory] = await Promise.all([
+            apiRequest<Batch[]>('/batches', token),
+            apiRequest<DepartmentInventory[]>('/department-inventory', token),
+        ]);
+        setDepartmentInventory(inventory);
+        setDashboardData((previous) => previous ? { ...previous, batches } : previous);
+    }
+
     async function dispenseMedicine() {
         if (!token) return;
         try {
             const batch = await apiRequest<Batch>('/dispense', token, { method: 'POST', body: JSON.stringify({ lookup: dispenseLookup, quantity: Number(dispenseQuantity), department: dispenseDepartment, note: dispenseNote || null }) });
             setStatus(`Dispensed using FEFO batch ${batch.batch_number}; ${batch.quantity} units remain`);
-            setDispenseLookup(''); setDispenseQuantity('1'); setDispenseNote(''); await loadWorkspace(selectedMedicineId);
+            setDispenseLookup(''); setDispenseQuantity('1'); setDispenseNote('');
+            await refreshStockViews();
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Dispensing failed'); }
     }
 
@@ -845,7 +901,7 @@ export default function App() {
             setDepartmentInventory((previous) => previous
                 .map((entry) => entry.id === item.id ? { ...entry, quantity: entry.quantity - requestedQuantity, updated_at: new Date().toISOString() } : entry)
                 .filter((entry) => entry.quantity > 0));
-            await loadWorkspace(selectedMedicineId);
+            await refreshStockViews();
             setStatus(`${requestedQuantity} ${item.medicine_name} units used in ${item.department}; stock updated`);
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Department stock update failed');
@@ -1187,7 +1243,7 @@ export default function App() {
     }
 
     if (currentUser.role === 'platform_admin') {
-            return <div className="shell"><aside className="hero-panel sticky-panel"><div className="brand"><span className="brand-mark">+</span><span>ArogyaMitra<small>HEALTH SYSTEMS</small></span></div><div className="badge">PLATFORM ADMIN</div><h1>Hospital & Pharmacy Setup</h1><p>Create each organisation, appoint its first pharmacy administrator, then let that team manage its own stock.</p><button className="logout-button" onClick={clearSession}>Sign out</button></aside><main className="content"><header className="topbar"><div><div className="eyebrow">Central administration</div><h2>Add a hospital or pharmacy</h2></div><div className="status-chip">{status}</div></header><section className="workspace-grid"><div className="panel"><div className="section-title">Step 1 · Organisation</div><FormGrid><Field label="Pharmacy name" value={pharmacyForm.name} onChange={(value) => setPharmacyForm(p => ({ ...p, name: value }))} /><Field label="Hospital name" value={pharmacyForm.hospital_name} onChange={(value) => setPharmacyForm(p => ({ ...p, hospital_name: value }))} /><Field label="Licence number" value={pharmacyForm.licence_number} onChange={(value) => setPharmacyForm(p => ({ ...p, licence_number: value }))} /><Field label="Address" value={pharmacyForm.address} onChange={(value) => setPharmacyForm(p => ({ ...p, address: value }))} /></FormGrid><div className="section-title">Step 2 · First pharmacy administrator</div><FormGrid><Field label="Admin full name" value={pharmacyForm.admin_full_name} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_full_name: value }))} /><Field label="Admin username" value={pharmacyForm.admin_username} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_username: value }))} /><Field label="Admin email" value={pharmacyForm.admin_email} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_email: value }))} type="email" /><Field label="Temporary password" value={pharmacyForm.admin_password} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_password: value }))} type="password" /></FormGrid><button className="primary inline" onClick={createPharmacy} disabled={loading}>{loading ? 'Creating workspace…' : 'Create pharmacy workspace'}</button></div><div className="panel"><div className="section-title">Registered organisations</div><table className="data-table"><thead><tr><th>Pharmacy</th><th>Hospital</th><th>Licence</th></tr></thead><tbody>{pharmacies.map(pharmacy => <tr key={pharmacy.id}><td>{pharmacy.name}</td><td>{pharmacy.hospital_name || '-'}</td><td>{pharmacy.licence_number || '-'}</td></tr>)}</tbody></table></div></section></main></div>;
+        return <div className="shell"><aside className="hero-panel sticky-panel"><div className="brand"><span className="brand-mark">+</span><span>ArogyaMitra<small>HEALTH SYSTEMS</small></span></div><div className="badge">PLATFORM ADMIN</div><h1>Central administration</h1><p>Manage organisations, pharmacy accounts, passwords, and access without touching the database.</p><button className="logout-button" onClick={clearSession}>Sign out</button></aside><main className="content"><header className="topbar"><div><div className="eyebrow">Platform controls</div><h2>Pharmacy operations centre</h2></div><div className="status-chip">{status}</div></header><section className="workspace-grid"><div className="panel"><div className="section-title">Create workspace</div><FormGrid><Field label="Pharmacy name" value={pharmacyForm.name} onChange={(value) => setPharmacyForm(p => ({ ...p, name: value }))} /><Field label="Hospital name" value={pharmacyForm.hospital_name} onChange={(value) => setPharmacyForm(p => ({ ...p, hospital_name: value }))} /><Field label="Licence number" value={pharmacyForm.licence_number} onChange={(value) => setPharmacyForm(p => ({ ...p, licence_number: value }))} /><Field label="Address" value={pharmacyForm.address} onChange={(value) => setPharmacyForm(p => ({ ...p, address: value }))} /><Field label="Admin full name" value={pharmacyForm.admin_full_name} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_full_name: value }))} /><Field label="Admin username" value={pharmacyForm.admin_username} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_username: value }))} /><Field label="Admin email" value={pharmacyForm.admin_email} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_email: value }))} type="email" /><Field label="Temporary password" value={pharmacyForm.admin_password} onChange={(value) => setPharmacyForm(p => ({ ...p, admin_password: value }))} type="password" /></FormGrid><button className="primary inline" onClick={createPharmacy} disabled={loading}>{loading ? 'Creating workspace…' : 'Create pharmacy workspace'}</button></div><div className="panel"><div className="section-title">Organisation details</div><select className="field-control" value={platformPharmacyForm.id} onChange={(event) => { const selected = pharmacies.find(item => item.id === Number(event.target.value)); if (selected) setPlatformPharmacyForm({ id: selected.id, name: selected.name, hospital_name: selected.hospital_name || '', licence_number: selected.licence_number || '', address: selected.address || '', country: selected.country || '' }); }}><option value={0}>Select pharmacy</option>{pharmacies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select>{platformPharmacyForm.id > 0 && <><FormGrid><Field label="Name" value={platformPharmacyForm.name} onChange={(value) => setPlatformPharmacyForm(p => ({ ...p, name: value }))} /><Field label="Hospital" value={platformPharmacyForm.hospital_name} onChange={(value) => setPlatformPharmacyForm(p => ({ ...p, hospital_name: value }))} /><Field label="Licence" value={platformPharmacyForm.licence_number} onChange={(value) => setPlatformPharmacyForm(p => ({ ...p, licence_number: value }))} /><Field label="Address" value={platformPharmacyForm.address} onChange={(value) => setPlatformPharmacyForm(p => ({ ...p, address: value }))} /></FormGrid><button className="primary inline" onClick={updatePlatformPharmacy}>Save organisation details</button></>}</div></section><section className="panel"><div className="section-title">Pharmacy accounts</div><table className="data-table"><thead><tr><th>Username</th><th>Pharmacy</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>{platformUsers.map(user => <tr key={user.id}><td>{user.username}<br /><span className="muted">{user.full_name}</span></td><td>{pharmacies.find(item => item.id === user.pharmacy_id)?.name || '-'}</td><td>{user.role}</td><td>{user.active ? 'Active' : 'Suspended'}</td><td><button className="secondary-button" onClick={() => updatePlatformUser(user, { active: !user.active })}>{user.active ? 'Suspend' : 'Reactivate'}</button>{user.active && <button className="secondary-button" onClick={() => resetPlatformUserPassword(user)}>Reset password</button>}</td></tr>)}</tbody></table></section></main></div>;
     }
 
     return (
