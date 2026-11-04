@@ -899,7 +899,8 @@ export default function App() {
             await loadWorkspace(savedMedicine.id);
             setSelectedMedicineId(savedMedicine.id);
             setBatchForm((previous) => ({ ...previous, medicine_id: String(savedMedicine.id) }));
-            setStatus('Medicine saved');
+            navigate('batches');
+            setStatus(`Medicine saved. Add a received batch for ${savedMedicine.name} to place stock in storage.`);
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Medicine save failed');
         }
@@ -936,17 +937,32 @@ export default function App() {
             expiry_date: batchForm.expiry_date,
             location: batchForm.location,
         };
+        if (!payload.medicine_id || !payload.batch_number.trim() || !payload.supplier.trim() || !payload.location) {
+            setStatus('Medicine, batch number, supplier, quantity, and storage location are required');
+            return;
+        }
+        if (payload.quantity < 0 || !Number.isInteger(payload.quantity)) {
+            setStatus('Quantity must be a whole number zero or greater');
+            return;
+        }
+        const receivedDate = new Date(payload.received_on);
+        const expiryDate = new Date(payload.expiry_date);
+        if (Number.isNaN(receivedDate.getTime()) || Number.isNaN(expiryDate.getTime()) || expiryDate <= receivedDate) {
+            setStatus('Expiry date must be after the received date');
+            return;
+        }
         try {
+            let savedBatch: Batch;
             if (editingBatchId) {
-                await apiRequest(`/batches/${editingBatchId}`, token, { method: 'PUT', body: JSON.stringify(payload) });
+                savedBatch = await apiRequest<Batch>(`/batches/${editingBatchId}`, token, { method: 'PUT', body: JSON.stringify(payload) });
             } else {
-                await apiRequest('/batches', token, { method: 'POST', body: JSON.stringify(payload) });
+                savedBatch = await apiRequest<Batch>('/batches', token, { method: 'POST', body: JSON.stringify(payload) });
             }
             setBatchForm(emptyBatchForm);
             setEditingBatchId(null);
-            await loadWorkspace(Number(batchForm.medicine_id));
-            setSelectedMedicineId(Number(batchForm.medicine_id));
-            setStatus('Batch saved');
+            setSelectedMedicineId(savedBatch.medicine_id);
+            await loadWorkspace(savedBatch.medicine_id);
+            setStatus(`Batch ${savedBatch.batch_number} saved in storage location ${savedBatch.location}`);
         } catch (error) {
             setStatus(error instanceof Error ? error.message : 'Batch save failed');
         }
@@ -1476,6 +1492,22 @@ export default function App() {
                                     {!filteredMedicines.length && <tr><td colSpan={5}>No medicines match this search.</td></tr>}
                                 </tbody>
                             </table>
+                            {dashboardData.medicines.filter((medicine) => !dashboardData.batches.some((batch) => batch.medicine_id === medicine.id)).length > 0 && (
+                                <div className="empty-state">
+                                    <strong>Catalogue medicines awaiting stock</strong>
+                                    <p>These medicines are saved in the catalogue but do not have a received batch yet, so they cannot appear in stock or the storage map.</p>
+                                    <div className="table-actions">
+                                        {dashboardData.medicines
+                                            .filter((medicine) => !dashboardData.batches.some((batch) => batch.medicine_id === medicine.id))
+                                            .slice(0, 8)
+                                            .map((medicine) => (
+                                                <button key={medicine.id} className="ghost" onClick={() => setBatchForm((previous) => ({ ...previous, medicine_id: String(medicine.id) }))}>
+                                                    Receive {medicine.name}
+                                                </button>
+                                            ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </section>
                 )}
