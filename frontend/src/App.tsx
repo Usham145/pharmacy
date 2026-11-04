@@ -450,6 +450,27 @@ export default function App() {
         }
     }, [token, currentUser?.role, activeTab]);
 
+    useEffect(() => {
+        if (!token || !selectedMedicineId || !dashboardData?.medicines.some((medicine) => medicine.id === selectedMedicineId)) {
+            return;
+        }
+        let cancelled = false;
+        void apiRequest<Forecast>(`/forecasts/${selectedMedicineId}`, token)
+            .then((forecast) => {
+                if (!cancelled) {
+                    setDashboardData((previous) => previous ? { ...previous, forecast } : previous);
+                }
+            })
+            .catch((error) => {
+                if (!cancelled) {
+                    setStatus(error instanceof Error ? error.message : 'Forecast could not be loaded');
+                }
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [token, selectedMedicineId, dashboardData?.medicines]);
+
     const selectedMedicine = useMemo(
         () => dashboardData?.medicines.find((medicine) => medicine.id === selectedMedicineId) ?? null,
         [dashboardData, selectedMedicineId],
