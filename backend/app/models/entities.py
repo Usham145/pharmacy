@@ -208,24 +208,6 @@ class Medicine(Base):
 
     batches: Mapped[list[BatchStock]] = relationship(back_populates="medicine", cascade="all, delete-orphan")
     consumption_records: Mapped[list[ConsumptionRecord]] = relationship(back_populates="medicine", cascade="all, delete-orphan")
-    barcode_mappings: Mapped[list[MedicineBarcode]] = relationship(back_populates="medicine", cascade="all, delete-orphan")
-
-
-class MedicineBarcode(Base):
-    __tablename__ = "medicine_barcodes"
-    __table_args__ = (
-        CheckConstraint("units_per_package > 0", name="ck_medicine_barcode_units_per_package"),
-        UniqueConstraint("pharmacy_id", "barcode", name="uq_medicine_barcode_per_pharmacy"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id", ondelete="CASCADE"), nullable=False, index=True)
-    medicine_id: Mapped[int] = mapped_column(ForeignKey("medicines.id", ondelete="CASCADE"), nullable=False, index=True)
-    barcode: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
-    units_per_package: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
-
-    medicine: Mapped[Medicine] = relationship(back_populates="barcode_mappings")
 
 
 class BatchStock(Base):
