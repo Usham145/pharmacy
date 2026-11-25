@@ -160,7 +160,7 @@ type ExchangeListing = { id: number; pharmacy_id: number; medicine_id: number; q
 
 type Pharmacy = { id: number; name: string; hospital_name?: string | null; licence_number?: string | null; address?: string | null; country?: string | null; active: boolean };
 type Equipment = { id: number; name: string; asset_number: string; equipment_type: string; waste_category: string; quantity: number; unit: string; expiry_date?: string | null; condition: string; waste_status: string; location: string };
-type WastePickup = { id: number; pickup_number: string; vendor_name: string; vendor_contact: string; scheduled_date: string; waste_category: string; item_summary: string; status: string; manifest_number?: string | null; certificate_reference?: string | null; notes?: string | null };
+type WastePickup = { id: number; pickup_number: string; vendor_name: string; vendor_contact: string; scheduled_date: string; waste_category: string; item_summary: string; status: string; manifest_number?: string | null; certificate_reference?: string | null; equipment_ids: number[]; batch_ids: number[]; notes?: string | null };
 type AuditLog = { id: number; action_time: string; actor_username: string; pharmacy_id: number | null; action: string; entity_name: string; entity_id: number; description: string };
 
 type SmtpStatus = { configured: boolean; host: string; port: number; use_tls: boolean; username_configured: boolean; from_email: string };
@@ -508,7 +508,7 @@ export default function App() {
     const [equipment, setEquipment] = useState<Equipment[]>([]);
     const [wastePickups, setWastePickups] = useState<WastePickup[]>([]);
     const [equipmentForm, setEquipmentForm] = useState({ name: '', asset_number: '', equipment_type: 'Medical equipment', waste_category: 'General equipment', quantity: '1', unit: 'piece', expiry_date: '', condition: 'usable', location: 'Main Store' });
-    const [pickupForm, setPickupForm] = useState({ vendor_name: '', vendor_contact: '', scheduled_date: new Date().toISOString().slice(0, 10), waste_category: 'Expired medicines', item_summary: '', notes: '' });
+    const [pickupForm, setPickupForm] = useState({ vendor_name: '', vendor_contact: '', scheduled_date: new Date().toISOString().slice(0, 10), waste_category: 'Expired medicines', item_summary: '', equipment_ids: [] as number[], batch_ids: [] as number[], notes: '' });
     const [pharmacyForm, setPharmacyForm] = useState({ name: '', hospital_name: '', licence_number: '', address: '', admin_username: '', admin_full_name: '', admin_email: '', admin_password: '' });
     const [storageSearch, setStorageSearch] = useState('');
     const [expirySearch, setExpirySearch] = useState('');
@@ -900,7 +900,16 @@ export default function App() {
     }
 
     function focusWasteSection(sectionId: string) {
-        document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const section = document.getElementById(sectionId);
+        if (!section) {
+            setStatus('Open the Expiry & Waste page to access this register');
+            return;
+        }
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        window.setTimeout(() => {
+            const field = section.querySelector<HTMLElement>('select, input, button');
+            field?.focus({ preventScroll: true });
+        }, 350);
     }
 
     async function saveEquipment() {
@@ -914,11 +923,20 @@ export default function App() {
     }
 
     async function scheduleWastePickup() {
-        if (!token || !pickupForm.vendor_name.trim() || !pickupForm.item_summary.trim()) { setStatus('Enter the licensed vendor and waste items'); return; }
+        if (!token) return;
+        if (!pickupForm.vendor_name.trim()) { setStatus('Select a licensed vendor'); return; }
+        if (!pickupForm.vendor_contact.trim()) { setStatus('Enter the vendor contact or licence details'); return; }
+        if (!pickupForm.scheduled_date) { setStatus('Select a pickup date'); return; }
+        if (!pickupForm.item_summary.trim() && !pickupForm.equipment_ids.length && !pickupForm.batch_ids.length) { setStatus('Select waste register items or enter the waste items and quantities'); return; }
         try {
-            const created = await apiRequest<WastePickup>('/waste/pickups', token, { method: 'POST', body: JSON.stringify(pickupForm) });
+            const created = await apiRequest<WastePickup>('/waste/pickups', token, { method: 'POST', body: JSON.stringify({ ...pickupForm, item_summary: pickupForm.item_summary.trim() || null }) });
             setWastePickups((previous) => [created, ...previous]);
-            setPickupForm({ vendor_name: '', vendor_contact: '', scheduled_date: new Date().toISOString().slice(0, 10), waste_category: 'Expired medicines', item_summary: '', notes: '' });
+            setEquipment((previous) => previous.map((item) => created.equipment_ids.includes(item.id) ? { ...item, waste_status: 'collection_scheduled' } : item));
+            setDashboardData((previous) => previous ? {
+                ...previous,
+                batches: previous.batches.map((batch) => created.batch_ids.includes(batch.id) ? { ...batch, disposal_status: 'collection_requested', disposal_method: 'Licensed biomedical-waste collector' } : batch),
+            } : previous);
+            setPickupForm({ vendor_name: '', vendor_contact: '', scheduled_date: new Date().toISOString().slice(0, 10), waste_category: 'Expired medicines', item_summary: '', equipment_ids: [], batch_ids: [], notes: '' });
             setStatus(`${created.pickup_number} scheduled; manifest can be recorded after handover`);
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Pickup scheduling failed'); }
     }
@@ -930,6 +948,13 @@ export default function App() {
         try {
             const updated = await apiRequest<WastePickup>(`/waste/pickups/${pickup.id}`, token, { method: 'PUT', body: JSON.stringify({ status, ...(status === 'collected' ? { manifest_number: reference } : { certificate_reference: reference }) }) });
             setWastePickups((previous) => previous.map((item) => item.id === updated.id ? updated : item));
+            if (status === 'collected') {
+                setEquipment((previous) => previous.map((item) => updated.equipment_ids.includes(item.id) ? { ...item, waste_status: 'collected' } : item));
+                setDashboardData((previous) => previous ? {
+                    ...previous,
+                    batches: previous.batches.map((batch) => updated.batch_ids.includes(batch.id) ? { ...batch, disposal_status: 'disposed', disposal_reference: updated.manifest_number, disposed_on: new Date().toISOString().slice(0, 10) } : batch),
+                } : previous);
+            }
             setStatus(`${updated.pickup_number} updated with compliance reference`);
         } catch (error) { setStatus(error instanceof Error ? error.message : 'Waste record update failed'); }
     }
@@ -1313,6 +1338,12 @@ export default function App() {
         const matchesFilter = expiryFilter === 'all' || info.expiryBand === expiryFilter;
         return matchesSearch && matchesFilter;
     });
+    const linkedPickupEquipmentIds = new Set(wastePickups.flatMap((pickup) => pickup.equipment_ids ?? []));
+    const linkedPickupBatchIds = new Set(wastePickups.flatMap((pickup) => pickup.batch_ids ?? []));
+    const collectibleEquipment = equipment.filter((item) => !['collection_scheduled', 'collected'].includes(item.waste_status) && !linkedPickupEquipmentIds.has(item.id));
+    const collectibleBatches = expiryRows
+        .filter(({ batch }) => batch.expiry_date <= new Date().toISOString().slice(0, 10) && batch.disposal_status !== 'disposed' && !linkedPickupBatchIds.has(batch.id))
+        .map(({ batch }) => batch);
     const expiryAtRisk = expiryRows.filter(({ info }) => info.daysLeft <= 90 && info.daysLeft >= 0);
     const expiredRows = expiryRows.filter(({ info }) => info.daysLeft < 0);
     const expiryRiskQuantity = expiryAtRisk.reduce((total, { batch }) => total + batch.quantity, 0);
@@ -1961,7 +1992,10 @@ export default function App() {
                                 <article><span>Value at risk</span><strong>₹{expiryRiskValue.toLocaleString()}</strong><small>purchase value estimate</small></article>
                             </div>
                             <div className="table-toolbar"><input type="search" value={expirySearch} onChange={(event) => setExpirySearch(event.target.value)} placeholder="Search medicine, batch, supplier, or location..." /><select value={expiryFilter} onChange={(event) => setExpiryFilter(event.target.value)} aria-label="Filter expiry risk"><option value="all">All risk bands</option><option value="red">Under 3 months</option><option value="yellow">3–6 months</option><option value="black">Expired / disposed</option><option value="green">Healthy</option></select>{(expirySearch || expiryFilter !== 'all') && <button className="secondary inline" onClick={() => { setExpirySearch(''); setExpiryFilter('all'); }}>Clear</button>}</div>
-                            <table className="data-table"><thead><tr><th>Risk</th><th>Medicine / batch</th><th>Supplier</th><th>Location</th><th>Qty</th><th>Expiry</th><th>Value at risk</th><th>Action</th></tr></thead><tbody>{expiryFilteredRows.map(({ batch, info }) => <tr key={batch.id}><td><span className={`expiry-pill ${info.expiryBand}`}>{info.expiryBand === 'black' ? 'EXPIRED' : info.expiryLabel}</span></td><td><strong>{batch.medicine_name ?? batch.medicine_id}</strong><small className="muted">{batch.batch_number}</small></td><td>{batch.supplier}</td><td>{batch.location}</td><td>{batch.quantity}</td><td>{batch.expiry_date}<small className="muted"> · {info.daysLeft} days</small></td><td>₹{(batch.quantity * batch.unit_price).toLocaleString()}<small className="muted"> recovery ₹{(batch.quantity * batch.recovery_unit_price).toLocaleString()}</small></td><td><div className="table-actions">{(info.expiryBand === 'yellow' || info.expiryBand === 'red') && <button className="ghost" onClick={() => emailSupplierForExpiry(batch)} disabled={!canEdit}>Notify supplier</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Return request</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'collection_requested' && batch.disposal_status !== 'disposed' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Quarantine / collect</button>}{batch.disposal_status === 'collection_requested' && <button className="ghost" onClick={() => confirmCollection(batch)} disabled={!canEdit}>Confirm collection</button>}{batch.disposal_status === 'disposed' && <span>Disposed</span>}</div></td></tr>)}{!expiryFilteredRows.length && <tr><td colSpan={8}>No batches match this expiry filter.</td></tr>}</tbody></table>
+                            <table className="data-table"><thead><tr><th>Risk</th><th>Medicine / batch</th><th>Supplier</th><th>Location</th><th>Qty</th><th>Expiry</th><th>Value at risk</th><th>Action</th></tr></thead><tbody>{expiryFilteredRows.map(({ batch, info }) => {
+                                const linkedPickup = wastePickups.find((pickup) => pickup.batch_ids?.includes(batch.id) && pickup.status !== 'destroyed');
+                                return <tr key={batch.id}><td><span className={`expiry-pill ${info.expiryBand}`}>{info.expiryBand === 'black' ? 'EXPIRED' : info.expiryLabel}</span></td><td><strong>{batch.medicine_name ?? batch.medicine_id}</strong><small className="muted">{batch.batch_number}</small></td><td>{batch.supplier}</td><td>{batch.location}</td><td>{batch.quantity}</td><td>{batch.expiry_date}<small className="muted"> · {info.daysLeft} days</small></td><td>₹{(batch.quantity * batch.unit_price).toLocaleString()}<small className="muted"> recovery ₹{(batch.quantity * batch.recovery_unit_price).toLocaleString()}</small></td><td><div className="table-actions">{(info.expiryBand === 'yellow' || info.expiryBand === 'red') && <button className="ghost" onClick={() => emailSupplierForExpiry(batch)} disabled={!canEdit}>Notify supplier</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'disposed' && <button className="ghost" onClick={() => emailSupplierForReturn(batch)} disabled={!canEdit}>Return request</button>}{info.expiryBand === 'black' && batch.disposal_status !== 'collection_requested' && batch.disposal_status !== 'disposed' && <button className="ghost danger" onClick={() => disposeExpiredBatch(batch)} disabled={!canEdit}>Quarantine / collect</button>}{batch.disposal_status === 'collection_requested' && (linkedPickup ? <small>Pickup {linkedPickup.pickup_number} scheduled</small> : <button className="ghost" onClick={() => confirmCollection(batch)} disabled={!canEdit}>Confirm collection</button>)}{batch.disposal_status === 'disposed' && <span>Disposed</span>}</div></td></tr>;
+                            })}{!expiryFilteredRows.length && <tr><td colSpan={8}>No batches match this expiry filter.</td></tr>}</tbody></table>
                         </div>
                         <div className="waste-workflow-grid">
                             <div className="panel waste-workflow-panel" id="equipment-waste-register">
@@ -1986,11 +2020,27 @@ export default function App() {
                                     <Field label="Vendor contact / licence" value={pickupForm.vendor_contact} onChange={(value) => setPickupForm((previous) => ({ ...previous, vendor_contact: value }))} disabled={!canEdit} />
                                     <Field label="Pickup date" value={pickupForm.scheduled_date} onChange={(value) => setPickupForm((previous) => ({ ...previous, scheduled_date: value }))} disabled={!canEdit} type="date" />
                                     <Field label="Waste stream" value={pickupForm.waste_category} onChange={(value) => setPickupForm((previous) => ({ ...previous, waste_category: value }))} disabled={!canEdit} select options={['Expired medicines', 'Sharps / needles', 'Cytotoxic', 'Infectious', 'Chemical', 'General equipment'].map((value) => ({ label: value, value }))} />
-                                    <Field label="Items / quantities" value={pickupForm.item_summary} onChange={(value) => setPickupForm((previous) => ({ ...previous, item_summary: value }))} disabled={!canEdit} />
+                                    <Field label="Additional items / quantities (optional when selecting records)" value={pickupForm.item_summary} onChange={(value) => setPickupForm((previous) => ({ ...previous, item_summary: value }))} disabled={!canEdit} />
                                     <Field label="Notes" value={pickupForm.notes} onChange={(value) => setPickupForm((previous) => ({ ...previous, notes: value }))} disabled={!canEdit} />
                                 </FormGrid>
+                                <div className="pickup-item-selection">
+                                    <strong>Link equipment / non-medicine waste</strong>
+                                    {collectibleEquipment.length ? collectibleEquipment.map((item) => (
+                                        <label key={`equipment-${item.id}`} className="pickup-item-option">
+                                            <input type="checkbox" checked={pickupForm.equipment_ids.includes(item.id)} disabled={!canEdit} onChange={(event) => setPickupForm((previous) => ({ ...previous, equipment_ids: event.target.checked ? [...previous.equipment_ids, item.id] : previous.equipment_ids.filter((id) => id !== item.id) }))} />
+                                            <span>{item.name} · {item.asset_number} · {item.quantity} {item.unit}</span>
+                                        </label>
+                                    )) : <small className="muted">No unassigned equipment waste records.</small>}
+                                    <strong>Link expired medicine batches</strong>
+                                    {collectibleBatches.length ? collectibleBatches.map((batch) => (
+                                        <label key={`batch-${batch.id}`} className="pickup-item-option">
+                                            <input type="checkbox" checked={pickupForm.batch_ids.includes(batch.id)} disabled={!canEdit} onChange={(event) => setPickupForm((previous) => ({ ...previous, batch_ids: event.target.checked ? [...previous.batch_ids, batch.id] : previous.batch_ids.filter((id) => id !== batch.id) }))} />
+                                            <span>{batch.medicine_name ?? batch.medicine_id} · {batch.batch_number} · {batch.quantity} units · expired {batch.expiry_date}</span>
+                                        </label>
+                                    )) : <small className="muted">No unassigned expired batches.</small>}
+                                </div>
                                 <div className="action-row"><button className="primary inline" onClick={scheduleWastePickup} disabled={!canEdit}>Schedule licensed pickup</button></div>
-                                <table className="data-table"><thead><tr><th>Pickup</th><th>Vendor / stream</th><th>Date</th><th>Status</th><th>Compliance</th></tr></thead><tbody>{wastePickups.map((pickup) => <tr key={pickup.id}><td>{pickup.pickup_number}<small className="muted"> · {pickup.item_summary}</small></td><td>{pickup.vendor_name}<small className="muted"> · {pickup.waste_category}</small></td><td>{pickup.scheduled_date}</td><td>{pickup.status}</td><td><div className="table-actions">{pickup.status === 'scheduled' && <button className="ghost" onClick={() => updateWastePickup(pickup, 'collected')} disabled={!canEdit}>Record manifest</button>}{pickup.status === 'collected' && <button className="ghost" onClick={() => updateWastePickup(pickup, 'destroyed')} disabled={!canEdit}>Add destruction certificate</button>}{pickup.manifest_number && <small>{pickup.manifest_number}</small>}{pickup.certificate_reference && <small>{pickup.certificate_reference}</small>}</div></td></tr>)}</tbody></table>
+                                <table className="data-table"><thead><tr><th>Pickup</th><th>Vendor / stream</th><th>Date</th><th>Status</th><th>Compliance</th></tr></thead><tbody>{wastePickups.map((pickup) => <tr key={pickup.id}><td>{pickup.pickup_number}<small className="muted"> · {pickup.item_summary}</small>{(pickup.equipment_ids?.length > 0 || pickup.batch_ids?.length > 0) && <small className="muted">Linked: {[...pickup.equipment_ids.map((id) => equipment.find((item) => item.id === id)?.name ?? `Equipment #${id}`), ...pickup.batch_ids.map((id) => dashboardData?.batches.find((batch) => batch.id === id)?.batch_number ?? `Batch #${id}`)].join(', ')}</small>}</td><td>{pickup.vendor_name}<small className="muted"> · {pickup.waste_category}</small></td><td>{pickup.scheduled_date}</td><td>{pickup.status}</td><td><div className="table-actions">{pickup.status === 'scheduled' && <button className="ghost" onClick={() => updateWastePickup(pickup, 'collected')} disabled={!canEdit}>Record manifest</button>}{pickup.status === 'collected' && <button className="ghost" onClick={() => updateWastePickup(pickup, 'destroyed')} disabled={!canEdit}>Add destruction certificate</button>}{pickup.manifest_number && <small>{pickup.manifest_number}</small>}{pickup.certificate_reference && <small>{pickup.certificate_reference}</small>}</div></td></tr>)}</tbody></table>
                             </div>
                         </div>
                     </section>

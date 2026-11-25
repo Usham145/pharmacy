@@ -12,12 +12,12 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.db.session import get_db
-from app.models.entities import BatchStock, ConsumptionRecord, Customer, DepartmentInventory, Medicine, Pharmacy, User, MedicalEquipment, WastePickup
+from app.models.entities import BatchStock, ConsumptionRecord, Customer, DepartmentInventory, Medicine, Pharmacy, User, MedicalEquipment, WastePickup, WastePickupLink
 from app.schemas import (
     CategoryRead,
     AlertRead,
@@ -163,6 +163,58 @@ def _refresh_equipment_waste_status(db: Session, pharmacy_id: int) -> None:
             changed = True
     if changed:
         db.commit()
+
+
+def _waste_pickup_read(db: Session, pickup: WastePickup) -> WastePickupRead:
+    response = WastePickupRead.model_validate(pickup)
+    links = db.query(WastePickupLink).filter(WastePickupLink.pickup_id == pickup.id).all()
+    return response.model_copy(update={
+        "equipment_ids": [link.equipment_id for link in links if link.equipment_id is not None],
+        "batch_ids": [link.batch_id for link in links if link.batch_id is not None],
+    })
+
+
+def _mark_batch_collected(
+    db: Session,
+    batch: BatchStock,
+    pharmacy_id: int,
+    username: str,
+    manifest_number: str,
+) -> None:
+    department_stocks = (
+        db.query(DepartmentInventory)
+        .filter(
+            DepartmentInventory.pharmacy_id == pharmacy_id,
+            DepartmentInventory.medicine_id == batch.medicine_id,
+            DepartmentInventory.batch_number == batch.batch_number,
+            DepartmentInventory.quantity > 0,
+        )
+        .with_for_update()
+        .all()
+    )
+    department_quantity = sum(item.quantity for item in department_stocks)
+    for item in department_stocks:
+        item.quantity = 0
+    batch.disposal_status = "disposed"
+    batch.disposal_reference = manifest_number
+    batch.disposed_on = date.today()
+    disposed_quantity = batch.quantity + department_quantity
+    db.add(InventoryTransaction(
+        transaction_date=date.today(),
+        medicine_id=batch.medicine_id,
+        transaction_type="Expiry disposal",
+        quantity=disposed_quantity,
+        reference=manifest_number,
+        note=f"Collected through {batch.disposal_method}; {department_quantity} units were in department stock",
+    ))
+    db.add(AuditLog(
+        actor_username=username,
+        pharmacy_id=pharmacy_id,
+        action="expired_stock_collected",
+        entity_name="batch",
+        entity_id=batch.id,
+        description=f"{batch.batch_number}: collected {disposed_quantity} units through {batch.disposal_method}; manifest {manifest_number}",
+    ))
 
 
 @router.post("/pharmacies", response_model=PharmacyRead, status_code=status.HTTP_201_CREATED)
@@ -620,16 +672,85 @@ def update_equipment(equipment_id: int, payload: EquipmentUpdate, db: Session = 
 
 @router.get("/waste/pickups", response_model=list[WastePickupRead])
 def list_waste_pickups(db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> list[WastePickupRead]:
-    return [WastePickupRead.model_validate(item) for item in db.query(WastePickup).filter(WastePickup.pharmacy_id == current_user.pharmacy_id).order_by(WastePickup.scheduled_date.desc()).all()]
+    pickups = db.query(WastePickup).filter(WastePickup.pharmacy_id == current_user.pharmacy_id).order_by(WastePickup.scheduled_date.desc()).all()
+    return [_waste_pickup_read(db, item) for item in pickups]
 
 
 @router.post("/waste/pickups", response_model=WastePickupRead, status_code=status.HTTP_201_CREATED)
 def create_waste_pickup(payload: WastePickupCreate, db: Session = Depends(get_db), current_user: User = Depends(require_roles("admin", "pharmacist"))) -> WastePickupRead:
-    pickup = WastePickup(pickup_number=f"WP-{datetime.utcnow():%Y%m%d%H%M%S%f}", **payload.model_dump(), pharmacy_id=current_user.pharmacy_id)
+    if len(set(payload.equipment_ids)) != len(payload.equipment_ids) or len(set(payload.batch_ids)) != len(payload.batch_ids):
+        raise HTTPException(status_code=400, detail="A waste item can only be selected once")
+    if not payload.item_summary and not payload.equipment_ids and not payload.batch_ids:
+        raise HTTPException(status_code=400, detail="Select registered waste items or enter an item summary")
+
+    equipment_items = (
+        db.query(MedicalEquipment)
+        .filter(
+            MedicalEquipment.pharmacy_id == current_user.pharmacy_id,
+            MedicalEquipment.id.in_(payload.equipment_ids),
+        )
+        .all()
+        if payload.equipment_ids else []
+    )
+    if len(equipment_items) != len(payload.equipment_ids):
+        raise HTTPException(status_code=400, detail="One or more selected equipment items do not belong to this pharmacy")
+    if any(item.waste_status in {"collection_scheduled", "collected"} for item in equipment_items):
+        raise HTTPException(status_code=409, detail="One or more equipment items are already in a collection workflow")
+
+    batch_items = (
+        db.query(BatchStock)
+        .join(Medicine)
+        .filter(
+            Medicine.pharmacy_id == current_user.pharmacy_id,
+            BatchStock.id.in_(payload.batch_ids),
+        )
+        .all()
+        if payload.batch_ids else []
+    )
+    if len(batch_items) != len(payload.batch_ids):
+        raise HTTPException(status_code=400, detail="One or more selected medicine batches do not belong to this pharmacy")
+    if any(batch.expiry_date > date.today() or batch.disposal_status == "disposed" for batch in batch_items):
+        raise HTTPException(status_code=400, detail="Only expired, undisposed medicine batches can be scheduled for collection")
+
+    item_link_conditions = []
+    if payload.equipment_ids:
+        item_link_conditions.append(WastePickupLink.equipment_id.in_(payload.equipment_ids))
+    if payload.batch_ids:
+        item_link_conditions.append(WastePickupLink.batch_id.in_(payload.batch_ids))
+    if item_link_conditions:
+        conflicting_links = db.query(WastePickupLink).join(WastePickup).filter(
+            WastePickup.pharmacy_id == current_user.pharmacy_id,
+            WastePickup.status.in_(["scheduled", "collected"]),
+            or_(*item_link_conditions),
+        ).first()
+        if conflicting_links:
+            raise HTTPException(status_code=409, detail="One or more waste items are already linked to an active pickup")
+
+    item_summary = (payload.item_summary or "").strip()
+    if not item_summary:
+        labels = [f"{item.name} ({item.asset_number}) x{item.quantity}" for item in equipment_items]
+        labels.extend(f"{batch.batch_number} x{batch.quantity}" for batch in batch_items)
+        item_summary = "; ".join(labels)
+    pickup = WastePickup(
+        pickup_number=f"WP-{datetime.utcnow():%Y%m%d%H%M%S%f}",
+        **payload.model_dump(exclude={"equipment_ids", "batch_ids", "item_summary"}),
+        item_summary=item_summary,
+        pharmacy_id=current_user.pharmacy_id,
+    )
     db.add(pickup)
+    db.flush()
+    for item in equipment_items:
+        item.waste_status = "collection_scheduled"
+        db.add(WastePickupLink(pickup_id=pickup.id, equipment_id=item.id))
+    for batch in batch_items:
+        batch.disposal_status = "collection_requested"
+        batch.disposal_method = "Licensed biomedical-waste collector"
+        batch.disposal_reference = None
+        batch.disposed_on = None
+        db.add(WastePickupLink(pickup_id=pickup.id, batch_id=batch.id))
     db.commit()
     db.refresh(pickup)
-    return WastePickupRead.model_validate(pickup)
+    return _waste_pickup_read(db, pickup)
 
 
 @router.put("/waste/pickups/{pickup_id}", response_model=WastePickupRead)
@@ -637,11 +758,55 @@ def update_waste_pickup(pickup_id: int, payload: WastePickupUpdate, db: Session 
     pickup = db.query(WastePickup).filter(WastePickup.id == pickup_id, WastePickup.pharmacy_id == current_user.pharmacy_id).first()
     if not pickup:
         raise HTTPException(status_code=404, detail="Waste pickup not found")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    next_status = changes.get("status")
+    if next_status is not None:
+        valid_transition = (
+            pickup.status == "scheduled" and next_status == "collected"
+        ) or (
+            pickup.status == "collected" and next_status == "destroyed"
+        )
+        if not valid_transition:
+            raise HTTPException(status_code=409, detail="Pickup status must progress from scheduled to collected to destroyed")
+        if next_status == "collected" and not (changes.get("manifest_number") or "").strip():
+            raise HTTPException(status_code=400, detail="A manifest / handover reference is required")
+        if next_status == "destroyed" and not (changes.get("certificate_reference") or "").strip():
+            raise HTTPException(status_code=400, detail="A destruction certificate reference is required")
+
+        links = db.query(WastePickupLink).filter(WastePickupLink.pickup_id == pickup.id).all()
+        if next_status == "collected":
+            for link in links:
+                if link.equipment_id is not None:
+                    equipment_item = db.query(MedicalEquipment).filter(
+                        MedicalEquipment.id == link.equipment_id,
+                        MedicalEquipment.pharmacy_id == current_user.pharmacy_id,
+                    ).first()
+                    if equipment_item:
+                        equipment_item.waste_status = "collected"
+                elif link.batch_id is not None:
+                    batch = (
+                        db.query(BatchStock)
+                        .join(Medicine)
+                        .filter(
+                            BatchStock.id == link.batch_id,
+                            Medicine.pharmacy_id == current_user.pharmacy_id,
+                        )
+                        .first()
+                    )
+                    if not batch or batch.disposal_status != "collection_requested":
+                        raise HTTPException(status_code=409, detail="A linked medicine batch is no longer awaiting collection")
+                    _mark_batch_collected(
+                        db,
+                        batch,
+                        current_user.pharmacy_id,
+                        current_user.username,
+                        changes["manifest_number"].strip(),
+                    )
+    for field, value in changes.items():
         setattr(pickup, field, value)
     db.commit()
     db.refresh(pickup)
-    return WastePickupRead.model_validate(pickup)
+    return _waste_pickup_read(db, pickup)
 
 
 @router.get("/suppliers", response_model=list[SupplierRead])

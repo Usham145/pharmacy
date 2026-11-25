@@ -2228,6 +2228,29 @@ body {
     margin: 3px 0;
 }
 
+.pickup-item-selection {
+    display: grid;
+    gap: 8px;
+    max-height: 260px;
+    margin: 14px 0;
+    overflow-y: auto;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #f8fbfa;
+}
+
+.pickup-item-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    font-size: .86rem;
+}
+
+.pickup-item-option input {
+    margin-top: 3px;
+}
+
 .waste-workflow-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

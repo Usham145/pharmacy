@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -277,6 +277,24 @@ class WastePickup(Base):
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     pharmacy_id: Mapped[int] = mapped_column(ForeignKey("pharmacies.id"), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WastePickupLink(Base):
+    __tablename__ = "waste_pickup_links"
+    __table_args__ = (
+        CheckConstraint(
+            "(equipment_id IS NOT NULL AND batch_id IS NULL) OR "
+            "(equipment_id IS NULL AND batch_id IS NOT NULL)",
+            name="ck_waste_pickup_link_one_item",
+        ),
+        UniqueConstraint("pickup_id", "equipment_id", name="uq_waste_pickup_equipment"),
+        UniqueConstraint("pickup_id", "batch_id", name="uq_waste_pickup_batch"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    pickup_id: Mapped[int] = mapped_column(ForeignKey("waste_pickups.id", ondelete="CASCADE"), nullable=False, index=True)
+    equipment_id: Mapped[int | None] = mapped_column(ForeignKey("medical_equipment.id"), nullable=True, index=True)
+    batch_id: Mapped[int | None] = mapped_column(ForeignKey("batch_stocks.id"), nullable=True, index=True)
 
 
 class PharmacyTaxProfile(Base):

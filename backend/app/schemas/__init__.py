@@ -323,8 +323,10 @@ class WastePickupCreate(BaseModel):
     vendor_contact: str = Field(min_length=2, max_length=128)
     scheduled_date: date
     waste_category: str = Field(min_length=2, max_length=64)
-    item_summary: str = Field(min_length=2, max_length=500)
+    item_summary: str | None = Field(default=None, min_length=2, max_length=500)
     notes: str | None = None
+    equipment_ids: list[int] = Field(default_factory=list)
+    batch_ids: list[int] = Field(default_factory=list)
 
 
 class WastePickupRead(WastePickupCreate):
@@ -334,6 +336,8 @@ class WastePickupRead(WastePickupCreate):
     status: str
     manifest_number: str | None = None
     certificate_reference: str | None = None
+    equipment_ids: list[int] = Field(default_factory=list)
+    batch_ids: list[int] = Field(default_factory=list)
 
 
 class WastePickupUpdate(BaseModel):

@@ -133,6 +133,80 @@ def test_receipt_fefo_and_department_use_refresh_inventory_views(inventory_clien
     assert transaction_types == {"Receipt", "Dispense", "Department use"}
 
 
+def test_certified_pickup_links_and_collects_equipment_and_expired_batches(inventory_client: TestClient) -> None:
+    equipment_response = inventory_client.post(
+        "/api/v1/waste/equipment",
+        json={
+            "name": "Expired sharps container",
+            "asset_number": "WASTE-001",
+            "equipment_type": "Sharps container",
+            "waste_category": "Sharps / needles",
+            "quantity": 1,
+            "unit": "container",
+            "condition": "contaminated",
+            "location": "Quarantine",
+        },
+    )
+    assert equipment_response.status_code == 201
+    equipment_id = equipment_response.json()["id"]
+
+    medicine_response = inventory_client.post(
+        "/api/v1/medicines",
+        json={"name": "Expired test medicine", "sku": "EXP-001", "category": "Test", "unit": "tablet"},
+    )
+    assert medicine_response.status_code == 201
+    batch_response = inventory_client.post(
+        "/api/v1/batches",
+        json={
+            "medicine_id": medicine_response.json()["id"],
+            "batch_number": "EXP-BATCH-001",
+            "supplier": "Integration Supplier",
+            "quantity": 4,
+            "unit_price": 5,
+            "received_on": (date.today() - timedelta(days=30)).isoformat(),
+            "expiry_date": (date.today() - timedelta(days=1)).isoformat(),
+            "location": "Quarantine",
+        },
+    )
+    assert batch_response.status_code == 201
+    batch_id = batch_response.json()["id"]
+
+    pickup_response = inventory_client.post(
+        "/api/v1/waste/pickups",
+        json={
+            "vendor_name": "Licensed Test Collector",
+            "vendor_contact": "Licence TEST-123",
+            "scheduled_date": date.today().isoformat(),
+            "waste_category": "Mixed biomedical waste",
+            "equipment_ids": [equipment_id],
+            "batch_ids": [batch_id],
+        },
+    )
+    assert pickup_response.status_code == 201
+    pickup = pickup_response.json()
+    assert pickup["equipment_ids"] == [equipment_id]
+    assert pickup["batch_ids"] == [batch_id]
+    assert "EXP-BATCH-001" in pickup["item_summary"]
+    assert inventory_client.get("/api/v1/batches").json()[0]["disposal_status"] == "collection_requested"
+
+    collected_response = inventory_client.put(
+        f"/api/v1/waste/pickups/{pickup['id']}",
+        json={"status": "collected", "manifest_number": "MANIFEST-123"},
+    )
+    assert collected_response.status_code == 200
+    assert collected_response.json()["equipment_ids"] == [equipment_id]
+    assert collected_response.json()["batch_ids"] == [batch_id]
+    assert inventory_client.get("/api/v1/waste/equipment").json()[0]["waste_status"] == "collected"
+    assert inventory_client.get("/api/v1/batches").json()[0]["disposal_status"] == "disposed"
+
+    destroyed_response = inventory_client.put(
+        f"/api/v1/waste/pickups/{pickup['id']}",
+        json={"status": "destroyed", "certificate_reference": "CERT-123"},
+    )
+    assert destroyed_response.status_code == 200
+    assert destroyed_response.json()["certificate_reference"] == "CERT-123"
+
+
 def test_dashboard_low_stock_counts_department_units(inventory_client: TestClient) -> None:
     create_stock(inventory_client, quantity=10)
     dispense_response = inventory_client.post(
