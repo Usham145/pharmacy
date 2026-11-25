@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Chart, LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler } from 'chart.js';
 import { Line } from 'react-chartjs-2';
+import InventoryCamera from './components/InventoryCamera';
 
 Chart.register(LineController, LineElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend, Filler);
 
@@ -25,13 +26,13 @@ type User = {
 };
 
 type UserFormState = { id?: number; username: string; full_name: string; email: string; role: string; password: string };
-type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'business' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement' | 'audit';
+type Page = 'welcome' | 'dashboard' | 'medicines' | 'batches' | 'expiry' | 'dispense' | 'sales' | 'finance' | 'business' | 'import' | 'suppliers' | 'transactions' | 'departments' | 'reports' | 'reference' | 'users' | 'procurement' | 'audit' | 'camera';
 
-const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'business', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement', 'audit'];
+const pageNames: Page[] = ['welcome', 'dashboard', 'medicines', 'batches', 'expiry', 'dispense', 'sales', 'finance', 'business', 'import', 'suppliers', 'transactions', 'departments', 'reports', 'reference', 'users', 'procurement', 'audit', 'camera'];
 const translations = {
-    en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', expiry: 'Expiry & waste', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
-    hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', expiry: 'समाप्ति व अपशिष्ट', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
-    bn: { workspace: 'আমার কর্মক্ষেত্র', dashboard: 'ড্যাশবোর্ড', medicines: 'ওষুধ', batches: 'ব্যাচ', expiry: 'মেয়াদ ও বর্জ্য', dispense: 'FEFO বিতরণ', import: 'CSV আমদানি', suppliers: 'সরবরাহকারী', transactions: 'লেনদেন', reference: 'রেফারেন্স তথ্য', users: 'দল ও প্রবেশাধিকার', reports: 'রিপোর্ট', signOut: 'লগ আউট', control: 'আরোগ্যমিত্র নিয়ন্ত্রণ কেন্দ্র', language: 'ভাষা' },
+    en: { workspace: 'My workspace', dashboard: 'Dashboard', medicines: 'Medicines', batches: 'Batches', expiry: 'Expiry & waste', dispense: 'FEFO Dispensing', import: 'Import CSV', suppliers: 'Suppliers', transactions: 'Transactions', reference: 'Reference Data', users: 'Team & Access', reports: 'Reports', camera: 'Camera count', signOut: 'Sign out', control: 'ArogyaMitra Control Centre', language: 'Language' },
+    hi: { workspace: 'मेरा कार्यक्षेत्र', dashboard: 'डैशबोर्ड', medicines: 'दवाइयाँ', batches: 'बैच', expiry: 'समाप्ति व अपशिष्ट', dispense: 'FEFO वितरण', import: 'CSV आयात', suppliers: 'आपूर्तिकर्ता', transactions: 'लेन-देन', reference: 'संदर्भ डेटा', users: 'टीम और पहुँच', reports: 'रिपोर्ट', camera: 'कैमरा गणना', signOut: 'लॉग आउट', control: 'आरोग्यमित्र नियंत्रण केंद्र', language: 'भाषा' },
+    bn: { workspace: 'আমার কর্মক্ষেত্র', dashboard: 'ড্যাশবোর্ড', medicines: 'ওষুধ', batches: 'ব্যাচ', expiry: 'মেয়াদ ও বর্জ্য', dispense: 'FEFO বিতরণ', import: 'CSV আমদানি', suppliers: 'সরবরাহকারী', transactions: 'লেনদেন', reference: 'রেফারেন্স তথ্য', users: 'দল ও প্রবেশাধিকার', reports: 'রিপোর্ট', camera: 'ক্যামেরা গণনা', signOut: 'লগ আউট', control: 'আরোগ্যমিত্র নিয়ন্ত্রণ কেন্দ্র', language: 'ভাষা' },
 } as const;
 
 type Medicine = {
@@ -1457,6 +1458,7 @@ export default function App() {
         { page: 'dashboard', label: t.dashboard, icon: '◫', roles: ['admin', 'pharmacist'] },
         { page: 'medicines', label: t.medicines, icon: '✚', roles: ['admin', 'pharmacist'] },
         { page: 'batches', label: t.batches, icon: '▣', roles: ['admin', 'pharmacist'] },
+        { page: 'camera', label: t.camera, icon: '◉', roles: ['admin', 'pharmacist'] },
         { page: 'dispense', label: t.dispense, icon: '↗', roles: ['admin', 'pharmacist'] },
         { page: 'sales', label: 'Sales & Billing', icon: '₹', roles: ['admin', 'pharmacist'] },
         { page: 'import', label: t.import, icon: '⇧', roles: ['admin', 'pharmacist'] },
@@ -1582,6 +1584,16 @@ export default function App() {
                             </div>
                         </div>}
                     </section>
+                )}
+
+                {activeTab === 'camera' && (
+                    <InventoryCamera
+                        apiBase={API_BASE}
+                        token={token}
+                        medicines={dashboardData?.medicines ?? []}
+                        batches={dashboardData?.batches ?? []}
+                        onInventoryUpdated={(medicineId) => loadWorkspace(medicineId)}
+                    />
                 )}
 
                 {activeTab === 'dashboard' && dashboardData && (

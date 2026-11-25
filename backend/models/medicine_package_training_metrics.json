@@ -1,0 +1,58 @@
+{
+  "dataset": "https://www.kaggle.com/datasets/anshu0saini/blister-packaging",
+  "dataset_source": "https://universe.roboflow.com/anshus-vision-space/meds-hvlge-hwrbw/dataset/2",
+  "dataset_license": "CC BY 4.0 (per the included Roboflow attribution files)",
+  "kaggle_listing_license": "MIT (conflicts with the bundled CC BY 4.0 attribution)",
+  "source_classes_collapsed_to": "medicine_package",
+  "source_class_names": [
+    "Accelent",
+    "Chymosan-Forte",
+    "Clopilet",
+    "Clopilet-A75",
+    "Concor",
+    "Contenel-M",
+    "Ecosprin",
+    "Glyciphage",
+    "Glycomet",
+    "Ibugesic-Plus",
+    "Mahagesic-P",
+    "Montas-L",
+    "Mypar-650",
+    "Neurobion",
+    "Odent",
+    "Okacet",
+    "Oro-CV",
+    "Parawal-500",
+    "Reclide",
+    "Vitz-B-eco"
+  ],
+  "images_by_split": {
+    "train": 500,
+    "valid": 8,
+    "test": 8
+  },
+  "checkpoint": "yolov8n.pt",
+  "training_framework_license": "AGPL-3.0 (Ultralytics)",
+  "epochs_requested": 20,
+  "epochs_completed": 20,
+  "training_image_size": 320,
+  "inference_image_size": 640,
+  "batch_size": 16,
+  "device": "cpu",
+  "test_metrics": {
+    "metrics/precision(B)": 0.8162572560747394,
+    "metrics/recall(B)": 0.9882387871234073,
+    "metrics/mAP50(B)": 0.8750000000000002,
+    "metrics/mAP50-95(B)": 0.363578196959535,
+    "fitness": 0.363578196959535
+  },
+  "opencv_deployed_count_evaluation": {
+    "test_images": 8,
+    "exact_count_matches": 7,
+    "total_absolute_count_error": 1,
+    "confidence_threshold": 0.4,
+    "nms_threshold": 0.2,
+    "preprocessing": "OpenCV DNN; test images resized to at most 1280 pixels on the longest side and JPEG-encoded at quality 82"
+  },
+  "onnx_model": "backend\\models\\medicine_package_detector.onnx"
+}

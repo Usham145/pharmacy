@@ -13,3 +13,5 @@ coverage/
 .DS_Store
 .vscode/.ropeproject/
 backups/
+/runs/
+/yolov8n.pt
